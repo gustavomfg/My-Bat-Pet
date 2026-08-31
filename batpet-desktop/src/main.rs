@@ -10,7 +10,7 @@ use bevy::{
 };
 
 use debug::DebugOptions;
-use pet::{BatState, CursorState};
+use pet::{BatState, CursorState, EyeState};
 
 fn main() {
     let debug = DebugOptions::from_args();
@@ -39,7 +39,23 @@ fn main() {
         )
         .init_state::<BatState>()
         .init_resource::<CursorState>()
+        .init_resource::<EyeState>()
+        .init_resource::<window::WindowPlacement>()
         .add_systems(Startup, (rendering::setup, window::log_startup))
-        .add_systems(Update, pet::capture_cursor)
+        .add_systems(
+            Update,
+            (
+                window::place_window_top_right,
+                pet::capture_cursor,
+                pet::trigger_flight,
+                pet::animate_flight.run_if(in_state(BatState::Flying)),
+                pet::update_eyes,
+            )
+                .chain(),
+        )
+        .add_systems(
+            OnEnter(BatState::Flying),
+            (pet::start_flight, pet::log_flight_started),
+        )
         .run();
 }
