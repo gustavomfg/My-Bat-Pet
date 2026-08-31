@@ -12,11 +12,12 @@ O workspace mantém duas versões separadas:
 - `batpet-desktop`: prova de conceito gráfica com Bevy.
 
 A versão desktop atualmente abre uma janela pequena, transparente e sem
-moldura, com um morcego pixel-art parado no estado `HangingIdle`. O cursor é
-capturado e armazenado, mas ainda não controla os olhos nem o movimento do
-morcego.
+moldura, com um morcego pixel-art pendurado no canto superior direito no
+estado `HangingIdle`. Os olhos acompanham o cursor dentro da janela; passar o
+mouse sobre o morcego ou clicar nele inicia um voo visual simples e limitado à
+janela.
 
-Não há voo, física, comportamento complexo ou animação de asas nesta etapa.
+Não há física, comportamento complexo ou animação de asas nesta etapa.
 
 ## Como testar
 
@@ -33,6 +34,10 @@ cargo run -p batpet-desktop -- --debug
 ```
 
 O aplicativo pode ser encerrado com `Ctrl+C` ou fechando a janela.
+
+O posicionamento no canto superior direito e o always-on-top são solicitações
+ao window manager. Em Wayland/KDE o compositor pode ignorar essas propriedades;
+o projeto não usa hacks específicos para contornar essa limitação.
 
 ## Validação
 
