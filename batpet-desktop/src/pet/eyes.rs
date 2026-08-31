@@ -11,9 +11,10 @@ use crate::{
 };
 
 pub const EYE_CENTER_DEAD_ZONE: f32 = 28.0;
-pub const MAX_PUPIL_OFFSET_X: f32 = 8.0;
-pub const MAX_PUPIL_OFFSET_Y: f32 = 8.0;
-pub const EYE_SMOOTHING: f32 = 14.0;
+pub const MAX_PUPIL_OFFSET_X: f32 = 6.0;
+pub const MAX_PUPIL_OFFSET_Y: f32 = 6.0;
+pub const EYE_SMOOTHING: f32 = 12.0;
+const DIAGONAL_COMPONENT: f32 = 0.707_106_77;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EyeDirection {
@@ -48,13 +49,25 @@ impl EyeDirection {
         match self {
             Self::Center => Vec2::ZERO,
             Self::Up => Vec2::new(0.0, MAX_PUPIL_OFFSET_Y),
-            Self::UpRight => Vec2::new(MAX_PUPIL_OFFSET_X, MAX_PUPIL_OFFSET_Y),
+            Self::UpRight => Vec2::new(
+                MAX_PUPIL_OFFSET_X * DIAGONAL_COMPONENT,
+                MAX_PUPIL_OFFSET_Y * DIAGONAL_COMPONENT,
+            ),
             Self::Right => Vec2::new(MAX_PUPIL_OFFSET_X, 0.0),
-            Self::DownRight => Vec2::new(MAX_PUPIL_OFFSET_X, -MAX_PUPIL_OFFSET_Y),
+            Self::DownRight => Vec2::new(
+                MAX_PUPIL_OFFSET_X * DIAGONAL_COMPONENT,
+                -MAX_PUPIL_OFFSET_Y * DIAGONAL_COMPONENT,
+            ),
             Self::Down => Vec2::new(0.0, -MAX_PUPIL_OFFSET_Y),
-            Self::DownLeft => Vec2::new(-MAX_PUPIL_OFFSET_X, -MAX_PUPIL_OFFSET_Y),
+            Self::DownLeft => Vec2::new(
+                -MAX_PUPIL_OFFSET_X * DIAGONAL_COMPONENT,
+                -MAX_PUPIL_OFFSET_Y * DIAGONAL_COMPONENT,
+            ),
             Self::Left => Vec2::new(-MAX_PUPIL_OFFSET_X, 0.0),
-            Self::UpLeft => Vec2::new(-MAX_PUPIL_OFFSET_X, MAX_PUPIL_OFFSET_Y),
+            Self::UpLeft => Vec2::new(
+                -MAX_PUPIL_OFFSET_X * DIAGONAL_COMPONENT,
+                MAX_PUPIL_OFFSET_Y * DIAGONAL_COMPONENT,
+            ),
         }
     }
 }

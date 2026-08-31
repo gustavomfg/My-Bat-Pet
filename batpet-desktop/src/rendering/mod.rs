@@ -17,11 +17,11 @@ pub const DISPLAY_SCALE: f32 = 8.0;
 pub const DISPLAY_WIDTH: f32 = SPRITE_WIDTH as f32 * DISPLAY_SCALE;
 pub const DISPLAY_HEIGHT: f32 = SPRITE_HEIGHT as f32 * DISPLAY_SCALE;
 pub const TOP_MARGIN: f32 = 8.0;
-pub const PUPIL_PIXEL_SIZE: f32 = 3.0;
+pub const PUPIL_PIXEL_SIZE: f32 = 2.0;
 pub const PUPIL_DISPLAY_SIZE: f32 = PUPIL_PIXEL_SIZE * DISPLAY_SCALE;
 // The redesigned idle sprite places the eye sockets lower on its hanging face.
-pub const LEFT_PUPIL_TOP_LEFT: Vec2 = Vec2::new(10.0, 20.0);
-pub const RIGHT_PUPIL_TOP_LEFT: Vec2 = Vec2::new(19.0, 20.0);
+pub const LEFT_PUPIL_TOP_LEFT: Vec2 = Vec2::new(10.5, 20.5);
+pub const RIGHT_PUPIL_TOP_LEFT: Vec2 = Vec2::new(19.5, 20.5);
 
 pub fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn(Camera2d);
