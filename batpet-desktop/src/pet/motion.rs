@@ -12,10 +12,11 @@ pub const FLIGHT_X_SPEED: f32 = 1.35;
 pub const FLIGHT_Y_SPEED: f32 = 2.2;
 pub const FLIGHT_ROTATION: f32 = 0.045;
 
-pub fn start_flight(mut bats: Query<(&Transform, &mut FlightMotion), With<Bat>>) {
-    for (transform, mut motion) in &mut bats {
+pub fn start_flight(mut bats: Query<(&mut Transform, &mut FlightMotion), With<Bat>>) {
+    for (mut transform, mut motion) in &mut bats {
         motion.elapsed = 0.0;
         motion.origin = transform.translation;
+        transform.scale = Vec3::ONE;
     }
 }
 
