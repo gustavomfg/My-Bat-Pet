@@ -6,15 +6,17 @@ use bevy::{
 
 use crate::{
     debug::DebugOptions,
-    pet::{Bat, CursorState, EyePupil},
-    rendering::DISPLAY_HEIGHT,
+    pet::{AttentionMotion, Bat, CursorState, EyePupil},
+    rendering::EYE_CENTER_LOCAL,
 };
+
+use super::acting::{IDLE_GAZE_MAX_ATTENTION, IdleGazeMotion, idle_gaze_target};
 
 pub const EYE_CENTER_DEAD_ZONE: f32 = 28.0;
 pub const MAX_PUPIL_OFFSET_X: f32 = 6.0;
 pub const MAX_PUPIL_OFFSET_Y: f32 = 6.0;
 pub const EYE_SMOOTHING: f32 = 12.0;
-const DIAGONAL_COMPONENT: f32 = 0.707_106_77;
+pub const EYE_INFLUENCE_DISTANCE: f32 = 144.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EyeDirection {
@@ -44,32 +46,6 @@ impl EyeDirection {
             Self::UpLeft => "up-left",
         }
     }
-
-    pub const fn offset(self) -> Vec2 {
-        match self {
-            Self::Center => Vec2::ZERO,
-            Self::Up => Vec2::new(0.0, MAX_PUPIL_OFFSET_Y),
-            Self::UpRight => Vec2::new(
-                MAX_PUPIL_OFFSET_X * DIAGONAL_COMPONENT,
-                MAX_PUPIL_OFFSET_Y * DIAGONAL_COMPONENT,
-            ),
-            Self::Right => Vec2::new(MAX_PUPIL_OFFSET_X, 0.0),
-            Self::DownRight => Vec2::new(
-                MAX_PUPIL_OFFSET_X * DIAGONAL_COMPONENT,
-                -MAX_PUPIL_OFFSET_Y * DIAGONAL_COMPONENT,
-            ),
-            Self::Down => Vec2::new(0.0, -MAX_PUPIL_OFFSET_Y),
-            Self::DownLeft => Vec2::new(
-                -MAX_PUPIL_OFFSET_X * DIAGONAL_COMPONENT,
-                -MAX_PUPIL_OFFSET_Y * DIAGONAL_COMPONENT,
-            ),
-            Self::Left => Vec2::new(-MAX_PUPIL_OFFSET_X, 0.0),
-            Self::UpLeft => Vec2::new(
-                -MAX_PUPIL_OFFSET_X * DIAGONAL_COMPONENT,
-                MAX_PUPIL_OFFSET_Y * DIAGONAL_COMPONENT,
-            ),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Resource)]
@@ -93,7 +69,8 @@ pub fn update_eyes(
     time: Res<Time>,
     cursor: Res<CursorState>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    bats: Query<&Transform, (With<Bat>, Without<EyePupil>)>,
+    bats: Query<(&Transform, &AttentionMotion), (With<Bat>, Without<EyePupil>)>,
+    gazes: Query<&IdleGazeMotion, With<Bat>>,
     mut eye_state: ResMut<EyeState>,
     mut pupils: Query<(&EyePupil, &mut Transform)>,
     debug: Res<DebugOptions>,
@@ -101,27 +78,24 @@ pub fn update_eyes(
     let Some(window) = windows.iter().next() else {
         return;
     };
-    let Some(bat_transform) = bats.iter().next() else {
+    let Some((bat_transform, attention)) = bats.iter().next() else {
         return;
     };
 
-    let delta = cursor
-        .position
-        .map(|position| {
-            let window_center = Vec2::new(
-                window.resolution.width() * 0.5,
-                window.resolution.height() * 0.5,
-            );
-            let cursor_world =
-                Vec2::new(position.x - window_center.x, window_center.y - position.y);
-            let bat_center =
-                bat_transform.translation.truncate() + Vec2::new(0.0, -DISPLAY_HEIGHT * 0.5);
-            cursor_world - bat_center
-        })
-        .unwrap_or(Vec2::ZERO);
+    let delta = cursor_delta(cursor.position, window, bat_transform);
 
     let direction = direction_for(delta);
-    let target_offset = direction.offset();
+    let cursor_target = eye_target_offset(delta);
+    let target_offset = if attention.target_level <= IDLE_GAZE_MAX_ATTENTION {
+        let gaze_target = gazes.iter().next().map_or(Vec2::ZERO, idle_gaze_target);
+        if gaze_target == Vec2::ZERO {
+            cursor_target
+        } else {
+            gaze_target
+        }
+    } else {
+        cursor_target
+    };
     let blend = (1.0 - (-EYE_SMOOTHING * time.delta_secs()).exp()).clamp(0.0, 1.0);
     let direction_changed = eye_state.direction != direction;
 
@@ -139,8 +113,49 @@ pub fn update_eyes(
     }
 }
 
+pub(crate) fn cursor_delta(
+    cursor_position: Option<Vec2>,
+    window: &Window,
+    bat_transform: &Transform,
+) -> Vec2 {
+    cursor_position
+        .map(|position| {
+            let window_center = Vec2::new(
+                window.resolution.width() * 0.5,
+                window.resolution.height() * 0.5,
+            );
+            let cursor_world =
+                Vec2::new(position.x - window_center.x, window_center.y - position.y);
+            let eye_center = bat_transform.translation.truncate() + EYE_CENTER_LOCAL;
+            cursor_world - eye_center
+        })
+        .unwrap_or(Vec2::ZERO)
+}
+
+pub fn eye_target_offset(delta: Vec2) -> Vec2 {
+    let distance = delta.length();
+
+    if distance <= EYE_CENTER_DEAD_ZONE || !distance.is_finite() {
+        return Vec2::ZERO;
+    }
+
+    let direction = delta / distance;
+    let influence =
+        smoothstep(((distance - EYE_CENTER_DEAD_ZONE) / EYE_INFLUENCE_DISTANCE).clamp(0.0, 1.0));
+
+    Vec2::new(
+        (direction.x * MAX_PUPIL_OFFSET_X * influence)
+            .clamp(-MAX_PUPIL_OFFSET_X, MAX_PUPIL_OFFSET_X),
+        (direction.y * MAX_PUPIL_OFFSET_Y * influence)
+            .clamp(-MAX_PUPIL_OFFSET_Y, MAX_PUPIL_OFFSET_Y),
+    )
+}
+
 pub fn direction_for(delta: Vec2) -> EyeDirection {
-    if delta.length_squared() <= EYE_CENTER_DEAD_ZONE * EYE_CENTER_DEAD_ZONE {
+    if !delta.x.is_finite()
+        || !delta.y.is_finite()
+        || delta.length_squared() <= EYE_CENTER_DEAD_ZONE * EYE_CENTER_DEAD_ZONE
+    {
         return EyeDirection::Center;
     }
 
@@ -170,6 +185,10 @@ pub fn direction_for(delta: Vec2) -> EyeDirection {
         (false, true) => EyeDirection::UpLeft,
         (false, false) => EyeDirection::DownLeft,
     }
+}
+
+fn smoothstep(value: f32) -> f32 {
+    value * value * (3.0 - 2.0 * value)
 }
 
 #[cfg(test)]
@@ -206,28 +225,44 @@ mod tests {
     }
 
     #[test]
-    fn pupil_offsets_stay_within_configured_limits() {
-        for direction in [
-            EyeDirection::Center,
-            EyeDirection::Up,
-            EyeDirection::UpRight,
-            EyeDirection::Right,
-            EyeDirection::DownRight,
-            EyeDirection::Down,
-            EyeDirection::DownLeft,
-            EyeDirection::Left,
-            EyeDirection::UpLeft,
+    fn continuous_pupil_target_has_a_dead_zone_and_smooth_influence() {
+        assert_eq!(eye_target_offset(Vec2::new(10.0, 10.0)), Vec2::ZERO);
+
+        let near = eye_target_offset(Vec2::new(EYE_CENTER_DEAD_ZONE + 1.0, 0.0));
+        let far = eye_target_offset(Vec2::new(10_000.0, 0.0));
+
+        assert!(near.x > 0.0);
+        assert!(near.x < MAX_PUPIL_OFFSET_X);
+        assert_eq!(far, Vec2::new(MAX_PUPIL_OFFSET_X, 0.0));
+    }
+
+    #[test]
+    fn continuous_pupil_target_stays_inside_the_eye_limits() {
+        for delta in [
+            Vec2::new(1.0, 100.0),
+            Vec2::new(-100.0, 1.0),
+            Vec2::new(100.0, 100.0),
+            Vec2::new(-100.0, -100.0),
         ] {
-            let offset = direction.offset();
-            assert!(offset.x.abs() <= MAX_PUPIL_OFFSET_X);
-            assert!(offset.y.abs() <= MAX_PUPIL_OFFSET_Y);
+            let target = eye_target_offset(delta);
+            assert!(target.x.abs() <= MAX_PUPIL_OFFSET_X);
+            assert!(target.y.abs() <= MAX_PUPIL_OFFSET_Y);
         }
+    }
+
+    #[test]
+    fn non_finite_cursor_delta_is_treated_as_center() {
+        assert_eq!(
+            direction_for(Vec2::new(f32::NAN, 1.0)),
+            EyeDirection::Center
+        );
+        assert_eq!(eye_target_offset(Vec2::new(f32::INFINITY, 1.0)), Vec2::ZERO);
     }
 
     #[test]
     fn smoothing_moves_toward_target_without_teleporting() {
         let current = Vec2::ZERO;
-        let target = EyeDirection::Right.offset();
+        let target = Vec2::new(MAX_PUPIL_OFFSET_X, 0.0);
         let blend = 1.0 - (-EYE_SMOOTHING * (1.0 / 60.0)).exp();
         let next = current.lerp(target, blend);
 

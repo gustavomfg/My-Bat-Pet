@@ -23,6 +23,9 @@ pub struct EyePupil {
     pub base_position: Vec2,
 }
 
+#[derive(Component, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EyeLid;
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Resource)]
 pub struct CursorState {
     pub position: Option<Vec2>,

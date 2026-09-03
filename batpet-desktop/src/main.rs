@@ -40,6 +40,8 @@ fn main() {
         .init_state::<BatState>()
         .init_resource::<CursorState>()
         .init_resource::<EyeState>()
+        .init_resource::<pet::IdleScheduler>()
+        .init_resource::<pet::VisualAssetAvailability>()
         .init_resource::<window::WindowPlacement>()
         .add_systems(Startup, (rendering::setup, window::log_startup))
         .add_systems(
@@ -49,6 +51,16 @@ fn main() {
                 pet::capture_cursor,
                 pet::trigger_flight,
                 pet::animate_flight.run_if(in_state(BatState::Flying)),
+                pet::advance_idle_scheduler.run_if(in_state(BatState::HangingIdle)),
+                pet::update_breathing.run_if(in_state(BatState::HangingIdle)),
+                pet::update_attention.run_if(in_state(BatState::HangingIdle)),
+                pet::update_idle_gaze.run_if(in_state(BatState::HangingIdle)),
+                pet::update_ear_twitch.run_if(in_state(BatState::HangingIdle)),
+                pet::update_idle_adjustment.run_if(in_state(BatState::HangingIdle)),
+                pet::update_blink.run_if(in_state(BatState::HangingIdle)),
+                pet::resolve_visual_pose.run_if(in_state(BatState::HangingIdle)),
+                pet::apply_idle_motion.run_if(in_state(BatState::HangingIdle)),
+                rendering::apply_visual_pose.run_if(in_state(BatState::HangingIdle)),
                 pet::update_eyes,
             )
                 .chain(),
