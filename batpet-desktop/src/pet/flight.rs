@@ -15,7 +15,7 @@ pub const TAKEOFF_TARGET_OFFSET: Vec2 = Vec2::new(4.0, -32.0);
 pub const FLIGHT_TARGET_OFFSET: Vec2 = Vec2::new(0.0, -48.0);
 pub const RETURN_APPROACH_OFFSET: Vec2 = Vec2::new(0.0, -24.0);
 
-pub const TAKEOFF_SUPPORT_HOLD: f32 = 0.16;
+pub const TAKEOFF_SUPPORT_HOLD: f32 = 0.24;
 pub const FLIGHT_DWELL: f32 = 0.85;
 pub const FLIGHT_LOOP_DELAY: f32 = 1.6;
 
@@ -56,6 +56,8 @@ pub struct FlightVisualIntent {
     pub speed: f32,
     pub vertical_speed: f32,
     pub body_offset: Vec2,
+    phase: f32,
+    contact_elapsed: f32,
 }
 
 impl Default for FlightVisualIntent {
@@ -66,6 +68,8 @@ impl Default for FlightVisualIntent {
             speed: 0.0,
             vertical_speed: 0.0,
             body_offset: Vec2::ZERO,
+            phase: 0.0,
+            contact_elapsed: 0.0,
         }
     }
 }
@@ -222,70 +226,64 @@ pub fn trigger_flight(
 }
 
 pub fn update_flight_visual(
+    time: Res<Time>,
     state: Res<State<BatState>>,
     mut bats: Query<(&FlightMotion, &mut FlightVisualIntent), With<Bat>>,
 ) {
     for (motion, mut intent) in &mut bats {
-        let max_speed = motion.max_speed.max(1.0);
-        intent.speed = (motion.velocity.length() / max_speed).clamp(0.0, 1.0);
-        intent.vertical_speed = (motion.velocity.y / max_speed).clamp(-1.0, 1.0);
+        intent.advance(*state.get(), motion, time.delta_secs());
+    }
+}
+
+impl FlightVisualIntent {
+    fn advance(&mut self, state: BatState, motion: &FlightMotion, dt: f32) {
+        let dt = safe_delta(dt);
+        self.speed = (motion.velocity.length() / motion.max_speed.max(1.0)).clamp(0.0, 1.0);
+        self.vertical_speed = (motion.velocity.y / motion.max_speed.max(1.0)).clamp(-1.0, 1.0);
         if motion.velocity.x.abs() > 3.0 {
-            intent.facing = if motion.velocity.x.is_sign_negative() {
-                -1
-            } else {
-                1
-            };
+            self.facing = if motion.velocity.x < 0.0 { -1 } else { 1 };
         }
-
-        let in_flight = matches!(
-            state.get(),
-            BatState::Takeoff | BatState::Flying | BatState::Returning | BatState::Landing
-        );
-        if !in_flight {
-            intent.frame = FlightVisualFrame::Rest;
-            intent.body_offset = Vec2::ZERO;
-            continue;
+        self.body_offset = Vec2::ZERO;
+        if matches!(state, BatState::HangingIdle | BatState::Reacting) {
+            self.frame = FlightVisualFrame::Rest;
+            self.phase = 0.0;
+            self.contact_elapsed = 0.0;
+            return;
         }
-
-        intent.frame = visual_frame(*state.get(), motion);
-        intent.body_offset = match intent.frame {
-            FlightVisualFrame::Lift => Vec2::Y * crate::rendering::DISPLAY_SCALE,
-            FlightVisualFrame::Power => Vec2::NEG_Y * crate::rendering::DISPLAY_SCALE,
-            FlightVisualFrame::Recover => Vec2::Y * crate::rendering::DISPLAY_SCALE,
-            _ => Vec2::ZERO,
-        };
-    }
-}
-
-fn visual_frame(state: BatState, motion: &FlightMotion) -> FlightVisualFrame {
-    match state {
-        BatState::Takeoff if motion.stage_elapsed < TAKEOFF_SUPPORT_HOLD => FlightVisualFrame::Coil,
-        BatState::Takeoff if motion.stage_elapsed < 0.42 => FlightVisualFrame::Lift,
-        BatState::Takeoff => FlightVisualFrame::Spread,
-        BatState::Flying => wingbeat_frame(motion.stage_elapsed, motion.arrived),
-        BatState::Returning if motion.stage_elapsed < 0.26 => FlightVisualFrame::Power,
-        BatState::Returning => wingbeat_frame(motion.stage_elapsed, motion.arrived),
-        BatState::Landing => {
-            let distance = motion.position.distance(motion.target.position);
-            if distance <= 64.0 || motion.arrived {
-                FlightVisualFrame::Reach
-            } else {
-                FlightVisualFrame::Recover
+        if state == BatState::Takeoff && motion.stage_elapsed < TAKEOFF_SUPPORT_HOLD {
+            self.frame = FlightVisualFrame::Coil;
+            self.phase = 0.0;
+            // A single pixel of gathering weight, with the claws still fixed.
+            self.body_offset = Vec2::Y * crate::rendering::DISPLAY_SCALE;
+            return;
+        }
+        if state == BatState::Landing && motion.arrived {
+            self.contact_elapsed += dt;
+            self.frame = FlightVisualFrame::Reach;
+            // Absorb contact before relaxing into Alive.
+            if self.contact_elapsed < 0.12 {
+                self.body_offset = Vec2::NEG_Y * crate::rendering::DISPLAY_SCALE;
             }
+            return;
         }
-        _ => FlightVisualFrame::Rest,
+        self.contact_elapsed = 0.0;
+        // Preserve phase across flight states. Upward effort shortens recovery;
+        // braking and the quiet part of the hop use a slower, readable stroke.
+        let effort = (motion.acceleration.y / motion.max_acceleration.max(1.0)).max(0.0);
+        let frequency = 2.6 + self.speed * 1.4 + effort.min(1.0) * 0.6;
+        self.phase = (self.phase + dt * frequency).rem_euclid(1.0);
+        self.frame = wingbeat_frame(self.phase);
+        if state == BatState::Landing && motion.position.distance(motion.target.position) <= 12.0 {
+            self.frame = FlightVisualFrame::Spread;
+        }
     }
 }
 
-fn wingbeat_frame(stage_elapsed: f32, arrived: bool) -> FlightVisualFrame {
-    if arrived {
-        return FlightVisualFrame::Spread;
-    }
-    let phase = (stage_elapsed * 4.8).rem_euclid(1.0);
+fn wingbeat_frame(phase: f32) -> FlightVisualFrame {
     match phase {
-        p if p < 0.18 => FlightVisualFrame::Lift,
-        p if p < 0.43 => FlightVisualFrame::Spread,
-        p if p < 0.64 => FlightVisualFrame::Power,
+        p if p < 0.22 => FlightVisualFrame::Lift,
+        p if p < 0.36 => FlightVisualFrame::Spread,
+        p if p < 0.58 => FlightVisualFrame::Power,
         _ => FlightVisualFrame::Recover,
     }
 }
@@ -353,7 +351,11 @@ pub fn update_takeoff(
     mut next: ResMut<NextState<BatState>>,
 ) {
     for (mut motion, mut transform) in &mut bats {
-        advance_flight(&mut motion, &mut transform, time.delta_secs());
+        let dt = safe_delta(time.delta_secs());
+        let hold_remaining = (TAKEOFF_SUPPORT_HOLD - motion.stage_elapsed).max(0.0);
+        let held = dt.min(hold_remaining);
+        motion.stage_elapsed += held;
+        advance_flight(&mut motion, &mut transform, dt - held);
         if motion.arrived {
             next.set(BatState::Flying);
         }
@@ -392,8 +394,13 @@ pub fn update_landing(
     mut next: ResMut<NextState<BatState>>,
 ) {
     for (mut motion, mut transform) in &mut bats {
+        let was_arrived = motion.arrived;
         advance_flight(&mut motion, &mut transform, time.delta_secs());
-        if motion.arrived {
+        if motion.arrived && !was_arrived {
+            // Contact starts a short support recovery; physics remains anchored.
+            motion.stage_elapsed = 0.0;
+        }
+        if motion.arrived && motion.stage_elapsed >= 0.22 {
             next.set(BatState::HangingIdle);
         }
     }
@@ -638,27 +645,55 @@ mod tests {
     }
 
     #[test]
-    fn flying_visual_intent_uses_motion_direction_and_stays_finite() {
-        let mut motion = FlightMotion::at(Vec2::ZERO);
-        motion.max_speed = 100.0;
-        motion.velocity = Vec2::new(-40.0, 25.0);
-        motion.stage_elapsed = 0.35;
+    fn airborne_pause_keeps_supporting_strokes_and_landing_waits_for_contact() {
+        let mut motion = FlightMotion::at(Vec2::new(0.0, -24.0));
+        motion.target = stage_target(Vec2::ZERO);
         motion.arrived = false;
         let mut intent = FlightVisualIntent::default();
-        let frame = visual_frame(BatState::Flying, &motion);
-        intent.frame = frame;
-        intent.facing = if motion.velocity.x.is_sign_negative() {
-            -1
-        } else {
-            1
-        };
-        intent.speed = (motion.velocity.length() / motion.max_speed).clamp(0.0, 1.0);
-        intent.vertical_speed = motion.velocity.y / motion.max_speed;
+        intent.advance(BatState::Landing, &motion, 0.05);
+        assert_ne!(intent.frame, FlightVisualFrame::Reach);
+        motion.arrived = true;
+        intent.advance(BatState::Landing, &motion, 0.05);
+        assert_eq!(intent.frame, FlightVisualFrame::Reach);
+        intent.advance(BatState::HangingIdle, &motion, 0.05);
+        assert_eq!(intent.body_offset, Vec2::ZERO);
+        let mut frames = Vec::new();
+        for _ in 0..60 {
+            intent.advance(BatState::Flying, &motion, 1.0 / 60.0);
+            if !frames.contains(&intent.frame) {
+                frames.push(intent.frame);
+            }
+        }
+        assert_eq!(
+            frames.len(),
+            4,
+            "stationary flight must not freeze the wings"
+        );
+    }
 
-        assert_eq!(intent.facing, -1);
-        assert!(intent.speed.is_finite());
-        assert!(intent.vertical_speed.is_finite());
-        assert_ne!(intent.frame, FlightVisualFrame::Rest);
+    #[test]
+    fn wing_phase_is_delta_time_based_and_survives_state_changes() {
+        let motion = FlightMotion::at(Vec2::ZERO);
+        let mut slow = FlightVisualIntent::default();
+        let mut fast = slow;
+        for _ in 0..30 {
+            slow.advance(BatState::Flying, &motion, 1.0 / 30.0);
+        }
+        for _ in 0..120 {
+            fast.advance(BatState::Returning, &motion, 1.0 / 120.0);
+        }
+        assert!((slow.phase - fast.phase).abs() < 0.0001);
+        assert_eq!(slow.frame, fast.frame);
+        let phase = fast.phase;
+        fast.advance(
+            BatState::Landing,
+            &FlightMotion {
+                arrived: false,
+                ..motion
+            },
+            0.0,
+        );
+        assert_eq!(fast.phase, phase);
     }
 
     #[test]

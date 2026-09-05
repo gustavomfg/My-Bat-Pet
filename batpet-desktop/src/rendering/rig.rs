@@ -155,13 +155,18 @@ pub fn animate(
     let Some((pose, breathing)) = bats.iter().next() else {
         return;
     };
-    let head = head_offset(pose, breathing);
+
     let flight_motion = flight.iter().next();
     let flight_intent = flight_intent.iter().next().copied().unwrap_or_default();
     let flight_active = matches!(
         state.get(),
         BatState::Takeoff | BatState::Flying | BatState::Returning | BatState::Landing
     );
+    let head = if flight_active {
+        Vec2::ZERO
+    } else {
+        head_offset(pose, breathing)
+    };
     let body_offset = if flight_active {
         flight_intent.body_offset
     } else {
@@ -265,7 +270,6 @@ pub fn animate(
                 let facing = left == (pose.attention.body_offset.x < 0.0);
                 let alert = pose.attention.ear_alertness > if facing { 0.42 } else { 0.92 };
                 head + body_offset
-                    + wing_offset(&flight_intent, left, flight_active)
                     + Vec2::new(
                         if twitch {
                             if left { S } else { -S }
@@ -318,24 +322,12 @@ pub fn animate(
     }
 }
 
-fn wing_offset(intent: &FlightVisualIntent, left: bool, active: bool) -> Vec2 {
-    if !active {
-        return Vec2::ZERO;
+fn wing_offset(intent: &FlightVisualIntent, _left: bool, active: bool) -> Vec2 {
+    // These are the folded rig pieces. Open wings live in the flight sheet.
+    // Keep the folded membrane with the torso during anticipation/contact.
+    if active {
+        intent.body_offset
+    } else {
+        Vec2::ZERO
     }
-
-    let (spread, lift) = match intent.frame {
-        FlightVisualFrame::Coil => (0.0, 0.0),
-        FlightVisualFrame::Lift => (3.0, 4.0),
-        FlightVisualFrame::Spread => (4.0, 1.0),
-        FlightVisualFrame::Power => (4.0, -3.0),
-        FlightVisualFrame::Recover => (2.0, 0.0),
-        FlightVisualFrame::Reach => (0.0, -1.0),
-        FlightVisualFrame::Rest => (0.0, 0.0),
-    };
-    let side = if left { -1.0 } else { 1.0 };
-    let leading = (left && intent.facing < 0) || (!left && intent.facing > 0);
-    Vec2::new(
-        side * spread * S,
-        (lift + if leading { 1.0 } else { 0.0 }) * S,
-    )
 }

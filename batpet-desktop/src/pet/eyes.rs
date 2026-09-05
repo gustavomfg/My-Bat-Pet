@@ -136,7 +136,12 @@ pub fn update_eyes(
         info!("eye direction={}", direction.label());
     }
 
-    let head = crate::rendering::rig::head_offset(pose, breathing);
+    let head = if flight_intent.is_some_and(|intent| intent.frame != super::FlightVisualFrame::Rest)
+    {
+        Vec2::ZERO
+    } else {
+        crate::rendering::rig::head_offset(pose, breathing)
+    };
     let flight_body_offset = flight_intent.map_or(Vec2::ZERO, |intent| intent.body_offset);
     let scale = crate::rendering::DISPLAY_SCALE;
     let gaze_x =
