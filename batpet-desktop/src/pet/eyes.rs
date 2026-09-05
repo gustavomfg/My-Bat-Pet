@@ -1,20 +1,20 @@
 use bevy::{
     log::info,
-    prelude::{Query, Res, ResMut, Resource, Time, Transform, Vec2, With, Without},
+    prelude::{Query, Res, ResMut, Resource, Time, Transform, Vec2, Visibility, With, Without},
     window::{PrimaryWindow, Window},
 };
 
 use crate::{
     debug::DebugOptions,
-    pet::{AttentionMotion, Bat, CursorState, EyePupil},
+    pet::{AttentionMotion, Bat, BreathingMotion, CursorState, EyePupil, VisualPose},
     rendering::EYE_CENTER_LOCAL,
 };
 
 use super::acting::{IDLE_GAZE_MAX_ATTENTION, IdleGazeMotion, idle_gaze_target};
 
 pub const EYE_CENTER_DEAD_ZONE: f32 = 28.0;
-pub const MAX_PUPIL_OFFSET_X: f32 = 6.0;
-pub const MAX_PUPIL_OFFSET_Y: f32 = 6.0;
+pub const MAX_PUPIL_OFFSET_X: f32 = 8.0;
+pub const MAX_PUPIL_OFFSET_Y: f32 = 8.0;
 pub const EYE_SMOOTHING: f32 = 12.0;
 pub const EYE_INFLUENCE_DISTANCE: f32 = 144.0;
 
@@ -69,16 +69,19 @@ pub fn update_eyes(
     time: Res<Time>,
     cursor: Res<CursorState>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    bats: Query<(&Transform, &AttentionMotion), (With<Bat>, Without<EyePupil>)>,
+    bats: Query<
+        (&Transform, &AttentionMotion, &VisualPose, &BreathingMotion),
+        (With<Bat>, Without<EyePupil>),
+    >,
     gazes: Query<&IdleGazeMotion, With<Bat>>,
     mut eye_state: ResMut<EyeState>,
-    mut pupils: Query<(&EyePupil, &mut Transform)>,
+    mut pupils: Query<(&EyePupil, &mut Transform, &mut Visibility)>,
     debug: Res<DebugOptions>,
 ) {
     let Some(window) = windows.iter().next() else {
         return;
     };
-    let Some((bat_transform, attention)) = bats.iter().next() else {
+    let Some((bat_transform, attention, pose, breathing)) = bats.iter().next() else {
         return;
     };
 
@@ -107,9 +110,23 @@ pub fn update_eyes(
         info!("eye direction={}", direction.label());
     }
 
-    for (pupil, mut transform) in &mut pupils {
-        transform.translation.x = pupil.base_position.x + eye_state.offset.x;
-        transform.translation.y = pupil.base_position.y + eye_state.offset.y;
+    let head = crate::rendering::rig::head_offset(pose, breathing);
+    let snap = |value: f32| (value / 8.0).round() * 8.0;
+    let gaze_x = snap(eye_state.offset.x);
+    // Keep a 3x3 pupil inside the rounded socket, including diagonal targets.
+    let gaze_y = if gaze_x == 0.0 {
+        snap(eye_state.offset.y)
+    } else {
+        0.0
+    };
+    for (pupil, mut transform, mut visibility) in &mut pupils {
+        *visibility = if pose.face == super::visual::FaceFrame::BlinkClosed {
+            Visibility::Hidden
+        } else {
+            Visibility::Visible
+        };
+        transform.translation.x = pupil.base_position.x + gaze_x + head.x;
+        transform.translation.y = pupil.base_position.y + gaze_y + head.y;
     }
 }
 

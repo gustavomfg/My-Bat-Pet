@@ -1,47 +1,73 @@
-use bevy::prelude::{Query, Res, Time, Transform, Vec3, With, info};
-
+use super::visual::{AttentionIntent, BodyFrame, FaceFrame};
 use crate::{
     debug::DebugOptions,
-    pet::{Bat, FlightMotion},
+    pet::{Bat, BatState, ClickReaction, VisualPose},
 };
+use bevy::prelude::*;
 
-pub const FLIGHT_X_RADIUS: f32 = 28.0;
-pub const FLIGHT_Y_RADIUS: f32 = 14.0;
-pub const FLIGHT_LAUNCH_DROP: f32 = 22.0;
-pub const FLIGHT_X_SPEED: f32 = 1.35;
-pub const FLIGHT_Y_SPEED: f32 = 2.2;
-pub const FLIGHT_ROTATION: f32 = 0.045;
+pub const REACTION_DURATION: f32 = 1.45;
 
-pub fn start_flight(mut bats: Query<(&mut Transform, &mut FlightMotion), With<Bat>>) {
-    for (mut transform, mut motion) in &mut bats {
+pub fn start_reaction(mut bats: Query<(&Transform, &mut ClickReaction), With<Bat>>) {
+    for (transform, mut motion) in &mut bats {
         motion.elapsed = 0.0;
         motion.origin = transform.translation;
-        transform.scale = Vec3::ONE;
     }
 }
 
-pub fn animate_flight(
+/// A click is a small, anchored tuck-and-peek, with a readable quiet finish.
+/// The former floating loop had neither wing strokes nor a return to rest.
+pub fn animate_reaction(
     time: Res<Time>,
-    mut bats: Query<(&mut Transform, &mut FlightMotion), With<Bat>>,
+    mut bats: Query<(&mut VisualPose, &mut ClickReaction), With<Bat>>,
+    mut next: ResMut<NextState<BatState>>,
 ) {
-    for (mut transform, mut motion) in &mut bats {
+    for (mut pose, mut motion) in &mut bats {
         motion.elapsed += time.delta_secs();
-        let elapsed = motion.elapsed;
-
-        transform.translation = motion.origin
-            + Vec3::new(
-                FLIGHT_X_RADIUS * (elapsed * FLIGHT_X_SPEED).sin(),
-                -FLIGHT_LAUNCH_DROP + FLIGHT_Y_RADIUS * (elapsed * FLIGHT_Y_SPEED).sin(),
-                0.0,
-            );
-        transform.rotation = bevy::prelude::Quat::from_rotation_z(
-            FLIGHT_ROTATION * (elapsed * FLIGHT_X_SPEED).sin(),
-        );
+        *pose = reaction_pose(motion.elapsed);
+        if motion.elapsed >= REACTION_DURATION {
+            next.set(BatState::HangingIdle);
+        }
     }
 }
 
-pub fn log_flight_started(debug: Res<DebugOptions>) {
+fn reaction_pose(t: f32) -> VisualPose {
+    let tucked = (0.12..0.52).contains(&t);
+    VisualPose {
+        body: if (0.52..0.76).contains(&t) {
+            BodyFrame::EarTwitchRight
+        } else {
+            BodyFrame::Neutral
+        },
+        face: if (0.20..0.43).contains(&t) {
+            FaceFrame::BlinkClosed
+        } else if (0.14..0.49).contains(&t) {
+            FaceFrame::BlinkHalf
+        } else {
+            FaceFrame::Open
+        },
+        attention: AttentionIntent {
+            body_compression: if tucked { 0.012 } else { 0.0 },
+            ear_alertness: if (0.52..0.96).contains(&t) { 0.8 } else { 0.0 },
+            ..default()
+        },
+    }
+}
+
+pub fn log_reaction_started(debug: Res<DebugOptions>) {
     if debug.enabled {
-        info!("bat state=Flying trigger=hover_or_click");
+        info!("bat state=Reacting trigger=click");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn click_has_anticipation_tuck_peek_and_rest() {
+        assert_eq!(reaction_pose(0.0).face, FaceFrame::Open);
+        assert_eq!(reaction_pose(0.3).face, FaceFrame::BlinkClosed);
+        assert!(reaction_pose(0.3).attention.body_compression > 0.0);
+        assert_eq!(reaction_pose(0.6).body, BodyFrame::EarTwitchRight);
+        assert_eq!(reaction_pose(REACTION_DURATION), VisualPose::default());
     }
 }

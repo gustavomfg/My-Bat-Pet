@@ -1,31 +1,21 @@
-use std::path::Path;
+pub mod rig;
 
 use bevy::{
     asset::AssetServer,
-    prelude::{
-        Assets, Camera2d, Children, Commands, Query, Res, ResMut, Sprite, TextureAtlas,
-        TextureAtlasLayout, Transform, UVec2, Vec2, Visibility, With, Without,
-    },
-    sprite::Anchor,
+    prelude::{Camera2d, Commands, Res, Sprite, Transform, Vec2, Visibility},
 };
 
 use crate::{
     pet::{
-        AnimationIntent, AttentionMotion, Bat, BlinkState, BreathingMotion, EarTwitchMotion,
-        EyeLid, EyePupil, FlightMotion, IdleAdjustmentMotion, IdleGazeMotion, IdleMotion,
-        VisualAssetAvailability, VisualPose,
+        AnimationIntent, AttentionMotion, Bat, BlinkState, BreathingMotion, ClickReaction,
+        EarTwitchMotion, EyePupil, IdleAdjustmentMotion, IdleGazeMotion, IdleMotion, VisualPose,
     },
     window::WINDOW_HEIGHT,
 };
 
 pub const BAT_SPRITE_PATH: &str = "bat/idle/bat_idle.png";
-pub const BODY_SPRITE_SHEET_PATH: &str = "bat/idle/bat_hanging_body.png";
-pub const FACE_SPRITE_SHEET_PATH: &str = "bat/idle/bat_hanging_face.png";
-pub const PUPIL_SPRITE_PATH: &str = "bat/eyes/pupil.png";
 pub const SPRITE_WIDTH: u32 = 32;
 pub const SPRITE_HEIGHT: u32 = 32;
-pub const BODY_ATLAS_FRAME_COUNT: u32 = 10;
-pub const FACE_ATLAS_FRAME_COUNT: u32 = 2;
 pub const DISPLAY_SCALE: f32 = 8.0;
 pub const DISPLAY_WIDTH: f32 = SPRITE_WIDTH as f32 * DISPLAY_SCALE;
 pub const DISPLAY_HEIGHT: f32 = SPRITE_HEIGHT as f32 * DISPLAY_SCALE;
@@ -37,57 +27,14 @@ pub const PUPIL_DISPLAY_SIZE: f32 = PUPIL_PIXEL_SIZE * DISPLAY_SCALE;
 pub const LEFT_PUPIL_TOP_LEFT: Vec2 = Vec2::new(10.0, 20.0);
 pub const RIGHT_PUPIL_TOP_LEFT: Vec2 = Vec2::new(19.0, 20.0);
 
-pub fn setup(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
-    mut visual_assets: ResMut<VisualAssetAvailability>,
-) {
+pub fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn(Camera2d);
-
-    // The reviewed atlas is opt-in: until the art exists, keep the known-good
-    // single-frame asset and make the missing visual work explicit in the
-    // runtime resource.
-    visual_assets.body_atlas = asset_exists(BODY_SPRITE_SHEET_PATH);
-    visual_assets.face_atlas = visual_assets.body_atlas && asset_exists(FACE_SPRITE_SHEET_PATH);
-
-    let (image, texture_atlas) = if visual_assets.body_atlas {
-        let image = asset_server.load(BODY_SPRITE_SHEET_PATH);
-        let layout = texture_atlas_layouts.add(TextureAtlasLayout::from_grid(
-            UVec2::new(SPRITE_WIDTH, SPRITE_HEIGHT),
-            BODY_ATLAS_FRAME_COUNT,
-            1,
-            None,
-            None,
-        ));
-
-        (image, Some(TextureAtlas { layout, index: 0 }))
-    } else {
-        (asset_server.load(BAT_SPRITE_PATH), None)
-    };
-
-    let face_layer = if visual_assets.face_atlas {
-        let image = asset_server.load(FACE_SPRITE_SHEET_PATH);
-        let layout = texture_atlas_layouts.add(TextureAtlasLayout::from_grid(
-            UVec2::new(SPRITE_WIDTH, SPRITE_HEIGHT),
-            FACE_ATLAS_FRAME_COUNT,
-            1,
-            None,
-            None,
-        ));
-
-        Some((image, layout))
-    } else {
-        None
-    };
-
-    let pupil_image = asset_server.load(PUPIL_SPRITE_PATH);
-    let base_translation = Transform::from_xyz(0.0, WINDOW_HEIGHT as f32 * 0.5 - TOP_MARGIN, 0.0);
+    let base = Transform::from_xyz(0.0, WINDOW_HEIGHT as f32 * 0.5 - TOP_MARGIN, 0.0);
     let bat = commands
         .spawn((
             Bat,
-            FlightMotion::default(),
-            IdleMotion::new(base_translation.translation),
+            ClickReaction::default(),
+            IdleMotion::new(base.translation),
             BreathingMotion::default(),
             AttentionMotion::default(),
             IdleGazeMotion::default(),
@@ -96,46 +43,35 @@ pub fn setup(
             AnimationIntent::default(),
             VisualPose::default(),
             BlinkState::default(),
-            Sprite {
-                image,
-                texture_atlas,
-                custom_size: Some(Vec2::new(DISPLAY_WIDTH, DISPLAY_HEIGHT)),
-                ..Default::default()
-            },
-            Anchor::TOP_CENTER,
-            base_translation,
+            base,
+            Visibility::Visible,
         ))
         .id();
-
+    rig::spawn(&mut commands, bat, asset_server.load(BAT_SPRITE_PATH));
     commands.entity(bat).with_children(|parent| {
-        if let Some((image, layout)) = face_layer {
-            parent.spawn((
-                EyeLid,
-                Sprite {
-                    image,
-                    texture_atlas: Some(TextureAtlas { layout, index: 0 }),
-                    custom_size: Some(Vec2::new(DISPLAY_WIDTH, DISPLAY_HEIGHT)),
-                    ..Default::default()
-                },
-                Anchor::TOP_CENTER,
-                Transform::from_xyz(0.0, 0.0, 2.0),
-                Visibility::Hidden,
-            ));
-        }
-
         for base_position in [
             pixel_top_left_to_local(LEFT_PUPIL_TOP_LEFT),
             pixel_top_left_to_local(RIGHT_PUPIL_TOP_LEFT),
         ] {
-            parent.spawn((
-                EyePupil { base_position },
-                Sprite {
-                    image: pupil_image.clone(),
-                    custom_size: Some(Vec2::splat(PUPIL_DISPLAY_SIZE)),
-                    ..Default::default()
-                },
-                Transform::from_xyz(base_position.x, base_position.y, 1.0),
-            ));
+            parent
+                .spawn((
+                    EyePupil { base_position },
+                    Sprite {
+                        color: bevy::prelude::Color::srgb_u8(46, 17, 80),
+                        custom_size: Some(Vec2::splat(PUPIL_DISPLAY_SIZE)),
+                        ..Default::default()
+                    },
+                    Transform::from_xyz(base_position.x, base_position.y, 1.0),
+                ))
+                .with_children(|eye| {
+                    eye.spawn((
+                        Sprite::from_color(
+                            bevy::prelude::Color::srgb_u8(251, 240, 216),
+                            Vec2::splat(DISPLAY_SCALE),
+                        ),
+                        Transform::from_xyz(-DISPLAY_SCALE, DISPLAY_SCALE, 0.1),
+                    ));
+                });
         }
     });
 }
@@ -147,45 +83,6 @@ pub fn pixel_top_left_to_local(top_left: Vec2) -> Vec2 {
     )
 }
 
-fn asset_exists(relative_path: &str) -> bool {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../assets")
-        .join(relative_path)
-        .is_file()
-}
-
-pub fn apply_visual_pose(
-    mut bats: Query<(&VisualPose, &mut Sprite, &Children), (With<Bat>, Without<EyeLid>)>,
-    mut face_layers: Query<(&mut Sprite, &mut Visibility), (With<EyeLid>, Without<Bat>)>,
-) {
-    for (pose, mut sprite, children) in &mut bats {
-        if let Some(atlas) = sprite.texture_atlas.as_mut() {
-            atlas.index = pose.body.atlas_index();
-        }
-        // Without an atlas the current asset is intentionally left as the
-        // one-frame fallback until the reviewed body art is added.
-
-        for child in children.iter() {
-            let Ok((mut face_sprite, mut visibility)) = face_layers.get_mut(*child) else {
-                continue;
-            };
-
-            let Some(index) = pose.face.atlas_index() else {
-                *visibility = Visibility::Hidden;
-                continue;
-            };
-
-            let Some(atlas) = face_sprite.texture_atlas.as_mut() else {
-                *visibility = Visibility::Hidden;
-                continue;
-            };
-
-            atlas.index = index;
-            *visibility = Visibility::Visible;
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,13 +90,8 @@ mod tests {
     #[test]
     fn uses_the_expected_idle_sprite_asset() {
         assert_eq!(BAT_SPRITE_PATH, "bat/idle/bat_idle.png");
-        assert_eq!(BODY_SPRITE_SHEET_PATH, "bat/idle/bat_hanging_body.png");
-        assert_eq!(FACE_SPRITE_SHEET_PATH, "bat/idle/bat_hanging_face.png");
-        assert_eq!(PUPIL_SPRITE_PATH, "bat/eyes/pupil.png");
         assert_eq!(SPRITE_WIDTH, 32);
         assert_eq!(SPRITE_HEIGHT, 32);
-        assert_eq!(BODY_ATLAS_FRAME_COUNT, 10);
-        assert_eq!(FACE_ATLAS_FRAME_COUNT, 2);
     }
 
     #[test]

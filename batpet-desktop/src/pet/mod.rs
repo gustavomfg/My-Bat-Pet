@@ -4,19 +4,19 @@ mod eyes;
 mod idle;
 mod motion;
 mod state;
-mod visual;
+pub(crate) mod visual;
 
 pub use acting::{AttentionMotion, IdleGazeMotion, update_attention, update_idle_gaze};
-pub use components::{Bat, CursorState, EyeLid, EyePupil, FlightMotion};
+pub use components::{Bat, ClickReaction, CursorState, EyePupil};
 pub use eyes::{EyeState, update_eyes};
 pub use idle::{
     BlinkState, BreathingMotion, EarTwitchMotion, IdleAdjustmentMotion, IdleMotion, IdleScheduler,
     advance_idle_scheduler, apply_idle_motion, update_blink, update_breathing, update_ear_twitch,
     update_idle_adjustment,
 };
-pub use motion::{animate_flight, log_flight_started, start_flight};
+pub use motion::{animate_reaction, log_reaction_started, start_reaction};
 pub use state::BatState;
-pub use visual::{AnimationIntent, VisualAssetAvailability, VisualPose, resolve_visual_pose};
+pub use visual::{AnimationIntent, VisualPose, resolve_visual_pose};
 
 use bevy::{
     ecs::message::MessageReader,
@@ -54,7 +54,7 @@ pub fn capture_cursor(
     }
 }
 
-pub fn trigger_flight(
+pub fn trigger_reaction(
     mut button_events: MessageReader<MouseButtonInput>,
     cursor: Res<CursorState>,
     windows: Query<&Window, With<PrimaryWindow>>,
@@ -83,11 +83,11 @@ pub fn trigger_flight(
     let over_bat = cursor_over_bat(cursor_position, window, bat_transform);
     let clicked_on_bat = clicked && over_bat;
 
-    // Hover is part of the acting/perception layer now. Flying remains an
+    // Hover is part of the acting/perception layer now. Reacting remains an
     // explicit interaction so a very-near cursor can produce the shy reaction
     // without immediately taking the pet out of HangingIdle.
     if clicked_on_bat {
-        next_state.set(BatState::Flying);
+        next_state.set(BatState::Reacting);
     }
 }
 

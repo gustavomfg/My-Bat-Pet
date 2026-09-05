@@ -1,4 +1,4 @@
-use bevy::prelude::{Component, Query, Resource, Vec2, With};
+use bevy::prelude::{Component, Query, Vec2, With};
 
 use crate::pet::Bat;
 
@@ -97,40 +97,9 @@ impl BodyAction {
     }
 }
 
-impl BodyFrame {
-    /// Index order for the future ten-cell body atlas described in the asset spec.
-    pub const fn atlas_index(self) -> usize {
-        match self {
-            Self::Neutral => 0,
-            Self::BreatheIn => 1,
-            Self::BreatheOut => 2,
-            Self::WingAdjust => 3,
-            Self::EarTwitchLeft => 4,
-            Self::EarTwitchRight => 5,
-            Self::AttentionLeft => 6,
-            Self::AttentionRight => 7,
-            Self::Attentive => 8,
-            Self::VeryNear => 9,
-        }
-    }
-}
-
-impl FaceFrame {
-    /// The open face has no overlay cell; blink cells are half-closed then closed.
-    pub const fn atlas_index(self) -> Option<usize> {
-        match self {
-            Self::Open => None,
-            Self::BlinkHalf => Some(0),
-            Self::BlinkClosed => Some(1),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AttentionIntent {
-    /// Continuous values keep perception separate from the authored pose.
-    /// The current monolithic sprite consumes `body_offset` as a safe fallback;
-    /// a future layered head/ear renderer can consume the other channels.
+    /// Perception stays continuous; the rig quantizes only the final pose.
     pub level: f32,
     pub head_offset: Vec2,
     pub body_offset: Vec2,
@@ -186,22 +155,42 @@ pub struct VisualPose {
     pub attention: AttentionIntent,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Resource)]
-pub struct VisualAssetAvailability {
-    pub body_atlas: bool,
-    pub face_atlas: bool,
-}
-
 pub fn resolve_visual_pose(mut bats: Query<(&AnimationIntent, &mut VisualPose), With<Bat>>) {
     for (intent, mut pose) in &mut bats {
         pose.body = intent.effective_body();
         pose.face = intent.face;
+        pose.attention = intent.attention;
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pose_resolution_keeps_the_continuous_acting_channels() {
+        use bevy::prelude::*;
+        let mut app = App::new();
+        app.add_systems(Update, resolve_visual_pose);
+        let intent = AnimationIntent {
+            attention: AttentionIntent {
+                head_offset: Vec2::new(0.8, 0.2),
+                ear_alertness: 0.7,
+                body_compression: 0.01,
+                ..default()
+            },
+            ..default()
+        };
+        let entity = app
+            .world_mut()
+            .spawn((Bat, intent, VisualPose::default()))
+            .id();
+        app.update();
+        assert_eq!(
+            app.world().get::<VisualPose>(entity).unwrap().attention,
+            intent.attention
+        );
+    }
 
     #[test]
     fn transient_body_action_has_priority_over_breathing() {
@@ -243,26 +232,5 @@ mod tests {
         };
 
         assert_eq!(intent.effective_body(), BodyFrame::VeryNear);
-    }
-
-    #[test]
-    fn body_atlas_indices_are_stable_and_contiguous() {
-        assert_eq!(BodyFrame::Neutral.atlas_index(), 0);
-        assert_eq!(BodyFrame::BreatheIn.atlas_index(), 1);
-        assert_eq!(BodyFrame::BreatheOut.atlas_index(), 2);
-        assert_eq!(BodyFrame::WingAdjust.atlas_index(), 3);
-        assert_eq!(BodyFrame::EarTwitchLeft.atlas_index(), 4);
-        assert_eq!(BodyFrame::EarTwitchRight.atlas_index(), 5);
-        assert_eq!(BodyFrame::AttentionLeft.atlas_index(), 6);
-        assert_eq!(BodyFrame::AttentionRight.atlas_index(), 7);
-        assert_eq!(BodyFrame::Attentive.atlas_index(), 8);
-        assert_eq!(BodyFrame::VeryNear.atlas_index(), 9);
-    }
-
-    #[test]
-    fn open_face_has_no_overlay_and_blink_frames_are_ordered() {
-        assert_eq!(FaceFrame::Open.atlas_index(), None);
-        assert_eq!(FaceFrame::BlinkHalf.atlas_index(), Some(0));
-        assert_eq!(FaceFrame::BlinkClosed.atlas_index(), Some(1));
     }
 }

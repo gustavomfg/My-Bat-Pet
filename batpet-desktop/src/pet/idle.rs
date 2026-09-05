@@ -2,20 +2,14 @@ use std::f32::consts::{PI, TAU};
 
 use bevy::{
     log::info,
-    prelude::{
-        Children, Component, Entity, Query, Res, ResMut, Resource, Time, Transform, Vec2, Vec3,
-        Visibility, With,
-    },
+    prelude::{Component, Query, Res, ResMut, Resource, Time, Transform, Vec2, Vec3, With},
 };
 
 use crate::{
     debug::DebugOptions,
     pet::{
-        Bat, EyeLid, EyePupil,
-        visual::{
-            AnimationIntent, BaseBodyFrame, BodyAction, FaceFrame, VisualAssetAvailability,
-            VisualPose,
-        },
+        Bat,
+        visual::{AnimationIntent, BaseBodyFrame, BodyAction, FaceFrame},
     },
 };
 
@@ -31,8 +25,8 @@ pub const BREATHING_MAX_AMPLITUDE: f32 = 0.85;
 pub const INITIAL_BLINK_DELAY: f32 = 5.0;
 pub const BLINK_MIN_INTERVAL: f32 = 4.3;
 pub const BLINK_MAX_INTERVAL: f32 = 8.2;
-pub const BLINK_MIN_DURATION: f32 = 0.08;
-pub const BLINK_MAX_DURATION: f32 = 0.13;
+pub const BLINK_MIN_DURATION: f32 = 0.16;
+pub const BLINK_MAX_DURATION: f32 = 0.23;
 pub const DOUBLE_BLINK_GAP_MIN: f32 = 0.08;
 pub const DOUBLE_BLINK_GAP_MAX: f32 = 0.16;
 pub const DOUBLE_BLINK_CHANCE: f32 = 0.18;
@@ -46,8 +40,8 @@ pub const ADJUSTMENT_MAX_DURATION: f32 = 0.78;
 pub const INITIAL_GAZE_DELAY: f32 = 8.5;
 pub const GAZE_MIN_INTERVAL: f32 = 8.0;
 pub const GAZE_MAX_INTERVAL: f32 = 16.0;
-pub const GAZE_MIN_DURATION: f32 = 0.4;
-pub const GAZE_MAX_DURATION: f32 = 1.2;
+pub const GAZE_MIN_DURATION: f32 = 1.0;
+pub const GAZE_MAX_DURATION: f32 = 2.0;
 pub const GAZE_RETURN_DURATION: f32 = 0.32;
 pub const GAZE_START_COOLDOWN: f32 = 0.35;
 pub const GAZE_END_COOLDOWN: f32 = 0.45;
@@ -62,8 +56,8 @@ pub const MICRO_ACTION_COOLDOWN: f32 = 0.85;
 pub const BLINK_ACTION_COOLDOWN: f32 = 0.55;
 pub const BLINK_SLOW_CHANCE: f32 = 0.08;
 pub const BLINK_SLOW_MAX_ATTENTION: f32 = 0.22;
-pub const BLINK_SLOW_MIN_DURATION: f32 = 0.13;
-pub const BLINK_SLOW_MAX_DURATION: f32 = 0.19;
+pub const BLINK_SLOW_MIN_DURATION: f32 = 0.28;
+pub const BLINK_SLOW_MAX_DURATION: f32 = 0.36;
 pub const BREATHING_SCALE_X: f32 = 0.004;
 pub const BREATHING_SCALE_Y: f32 = 0.008;
 
@@ -207,10 +201,10 @@ impl IdleScheduler {
 
     pub fn next_idle_gaze_offset(&mut self) -> Vec2 {
         match self.rng.next_u32() & 3 {
-            0 => Vec2::new(-3.2, 0.35),
-            1 => Vec2::new(3.2, 0.35),
-            2 => Vec2::new(-2.6, -0.25),
-            _ => Vec2::new(2.6, -0.25),
+            0 => Vec2::new(-8.0, 0.0),
+            1 => Vec2::new(8.0, 0.0),
+            2 => Vec2::new(-8.0, -8.0),
+            _ => Vec2::new(8.0, -8.0),
         }
     }
 
@@ -628,34 +622,12 @@ pub fn update_ear_twitch(
 pub fn update_blink(
     time: Res<Time>,
     mut scheduler: ResMut<IdleScheduler>,
-    mut bats: Query<(&mut BlinkState, &Children, &mut AnimationIntent), With<Bat>>,
-    mut pupils: Query<&mut Visibility, With<EyePupil>>,
-    face_layers: Query<Entity, With<EyeLid>>,
+    mut bats: Query<(&mut BlinkState, &mut AnimationIntent), With<Bat>>,
     debug: Res<DebugOptions>,
 ) {
-    let has_face_layer = !face_layers.is_empty();
-
-    for (mut blink, children, mut intent) in &mut bats {
-        let was_closed = blink.is_closed();
+    for (mut blink, mut intent) in &mut bats {
         let event = blink.tick(time.delta_secs(), &mut scheduler, intent.attention.level);
-        let is_closed = blink.is_closed();
         intent.face = blink.face_frame();
-
-        if was_closed != is_closed && !has_face_layer {
-            // Placeholder until a closed-eye sprite exists: hiding the pupils
-            // keeps the blink state independent from the final eye artwork.
-            let visibility = if is_closed {
-                Visibility::Hidden
-            } else {
-                Visibility::Visible
-            };
-
-            for child in children.iter() {
-                if let Ok(mut pupil_visibility) = pupils.get_mut(*child) {
-                    *pupil_visibility = visibility;
-                }
-            }
-        }
 
         if debug.enabled {
             match event {
@@ -674,39 +646,11 @@ pub fn update_blink(
     }
 }
 
-pub fn apply_idle_motion(
-    assets: Res<VisualAssetAvailability>,
-    mut bats: Query<(&IdleMotion, &VisualPose, &mut Transform), With<Bat>>,
-) {
-    for (idle, pose, mut transform) in &mut bats {
-        let adjustment_offset = if assets.body_atlas {
-            Vec2::ZERO
-        } else {
-            idle.adjustment_offset
-        };
-        let body_offset = if assets.body_atlas {
-            Vec2::ZERO
-        } else {
-            pose.attention.body_offset
-        };
-        let compression = if assets.body_atlas {
-            0.0
-        } else {
-            pose.attention.body_compression.clamp(0.0, 0.02)
-        };
-        let scale = Vec3::new(
-            idle.breathing_scale.x * (1.0 + compression * 0.25),
-            idle.breathing_scale.y * (1.0 - compression),
-            1.0,
-        );
-
-        transform.translation = idle.base_translation
-            + Vec3::new(
-                body_offset.x + adjustment_offset.x,
-                body_offset.y + adjustment_offset.y,
-                0.0,
-            );
-        transform.scale = scale;
+pub fn apply_idle_motion(mut bats: Query<(&IdleMotion, &mut Transform), With<Bat>>) {
+    for (idle, mut transform) in &mut bats {
+        transform.translation = idle.base_translation;
+        transform.scale = Vec3::ONE;
+        transform.rotation = bevy::prelude::Quat::IDENTITY;
     }
 }
 

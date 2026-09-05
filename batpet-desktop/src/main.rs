@@ -1,6 +1,7 @@
 mod debug;
 mod pet;
 mod rendering;
+mod review;
 mod window;
 
 use bevy::{
@@ -22,7 +23,14 @@ fn main() {
 
     App::new()
         .insert_resource(debug)
-        .insert_resource(ClearColor(Color::NONE))
+        .insert_resource(review::Review::from_args())
+        .insert_resource(ClearColor(
+            if std::env::args().any(|arg| arg == "--review-light") {
+                Color::srgb_u8(235, 231, 240)
+            } else {
+                Color::NONE
+            },
+        ))
         .add_plugins(
             DefaultPlugins
                 .set(AssetPlugin {
@@ -41,7 +49,6 @@ fn main() {
         .init_resource::<CursorState>()
         .init_resource::<EyeState>()
         .init_resource::<pet::IdleScheduler>()
-        .init_resource::<pet::VisualAssetAvailability>()
         .init_resource::<window::WindowPlacement>()
         .add_systems(Startup, (rendering::setup, window::log_startup))
         .add_systems(
@@ -49,8 +56,9 @@ fn main() {
             (
                 window::place_window_top_right,
                 pet::capture_cursor,
-                pet::trigger_flight,
-                pet::animate_flight.run_if(in_state(BatState::Flying)),
+                review::drive,
+                pet::trigger_reaction,
+                pet::animate_reaction.run_if(in_state(BatState::Reacting)),
                 pet::advance_idle_scheduler.run_if(in_state(BatState::HangingIdle)),
                 pet::update_breathing.run_if(in_state(BatState::HangingIdle)),
                 pet::update_attention.run_if(in_state(BatState::HangingIdle)),
@@ -60,14 +68,15 @@ fn main() {
                 pet::update_blink.run_if(in_state(BatState::HangingIdle)),
                 pet::resolve_visual_pose.run_if(in_state(BatState::HangingIdle)),
                 pet::apply_idle_motion.run_if(in_state(BatState::HangingIdle)),
-                rendering::apply_visual_pose.run_if(in_state(BatState::HangingIdle)),
+                rendering::rig::animate,
                 pet::update_eyes,
+                review::capture,
             )
                 .chain(),
         )
         .add_systems(
-            OnEnter(BatState::Flying),
-            (pet::start_flight, pet::log_flight_started),
+            OnEnter(BatState::Reacting),
+            (pet::start_reaction, pet::log_reaction_started),
         )
         .run();
 }

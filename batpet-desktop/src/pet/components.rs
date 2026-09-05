@@ -4,12 +4,12 @@ use bevy::prelude::{Component, Resource, Vec2, Vec3};
 pub struct Bat;
 
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
-pub struct FlightMotion {
+pub struct ClickReaction {
     pub elapsed: f32,
     pub origin: Vec3,
 }
 
-impl Default for FlightMotion {
+impl Default for ClickReaction {
     fn default() -> Self {
         Self {
             elapsed: 0.0,
@@ -22,9 +22,6 @@ impl Default for FlightMotion {
 pub struct EyePupil {
     pub base_position: Vec2,
 }
-
-#[derive(Component, Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct EyeLid;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Resource)]
 pub struct CursorState {

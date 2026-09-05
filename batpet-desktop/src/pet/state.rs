@@ -4,14 +4,14 @@ use bevy::prelude::States;
 pub enum BatState {
     #[default]
     HangingIdle,
-    Flying,
+    Reacting,
 }
 
 impl BatState {
     pub const fn label(self) -> &'static str {
         match self {
             Self::HangingIdle => "HangingIdle",
-            Self::Flying => "Flying",
+            Self::Reacting => "Reacting",
         }
     }
 }
@@ -24,6 +24,6 @@ mod tests {
     fn starts_in_hanging_idle() {
         assert_eq!(BatState::default(), BatState::HangingIdle);
         assert_eq!(BatState::HangingIdle.label(), "HangingIdle");
-        assert_eq!(BatState::Flying.label(), "Flying");
+        assert_eq!(BatState::Reacting.label(), "Reacting");
     }
 }
