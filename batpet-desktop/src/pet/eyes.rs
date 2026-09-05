@@ -12,11 +12,11 @@ use crate::{
 
 use super::acting::{IDLE_GAZE_MAX_ATTENTION, IdleGazeMotion, idle_gaze_target};
 
-pub const EYE_CENTER_DEAD_ZONE: f32 = 28.0;
+pub const EYE_CENTER_DEAD_ZONE: f32 = 16.0;
 pub const MAX_PUPIL_OFFSET_X: f32 = 8.0;
 pub const MAX_PUPIL_OFFSET_Y: f32 = 8.0;
-pub const EYE_SMOOTHING: f32 = 12.0;
-pub const EYE_INFLUENCE_DISTANCE: f32 = 144.0;
+pub const EYE_SMOOTHING: f32 = 18.0;
+pub const EYE_INFLUENCE_DISTANCE: f32 = 40.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EyeDirection {
@@ -53,6 +53,7 @@ pub struct EyeState {
     pub direction: EyeDirection,
     pub target_offset: Vec2,
     pub offset: Vec2,
+    pub displayed: Vec2,
 }
 
 impl Default for EyeState {
@@ -61,6 +62,7 @@ impl Default for EyeState {
             direction: EyeDirection::Center,
             target_offset: Vec2::ZERO,
             offset: Vec2::ZERO,
+            displayed: Vec2::ZERO,
         }
     }
 }
@@ -85,21 +87,35 @@ pub fn update_eyes(
         return;
     };
 
-    let delta = cursor_delta(cursor.position, window, bat_transform);
+    let delta = if cursor.position.is_some() {
+        cursor_delta(cursor.position, window, bat_transform)
+    } else {
+        attention.perceived_delta
+    };
 
     let direction = direction_for(delta);
-    let cursor_target = eye_target_offset(delta);
-    let target_offset = if attention.target_level <= IDLE_GAZE_MAX_ATTENTION {
-        let gaze_target = gazes.iter().next().map_or(Vec2::ZERO, idle_gaze_target);
-        if gaze_target == Vec2::ZERO {
-            cursor_target
-        } else {
-            gaze_target
-        }
+    let cursor_target = if attention.absent_secs <= 0.65 {
+        eye_target_offset(delta)
     } else {
-        cursor_target
+        Vec2::ZERO
     };
-    let blend = (1.0 - (-EYE_SMOOTHING * time.delta_secs()).exp()).clamp(0.0, 1.0);
+    let target_offset =
+        if attention.absent_secs > 1.8 && attention.target_level <= IDLE_GAZE_MAX_ATTENTION {
+            let gaze_target = gazes.iter().next().map_or(Vec2::ZERO, idle_gaze_target);
+            if gaze_target == Vec2::ZERO {
+                cursor_target
+            } else {
+                gaze_target
+            }
+        } else {
+            cursor_target
+        };
+    let response = if attention.absent_secs > 0.65 {
+        4.0
+    } else {
+        EYE_SMOOTHING
+    };
+    let blend = (1.0 - (-response * time.delta_secs()).exp()).clamp(0.0, 1.0);
     let direction_changed = eye_state.direction != direction;
 
     eye_state.direction = direction;
@@ -111,14 +127,18 @@ pub fn update_eyes(
     }
 
     let head = crate::rendering::rig::head_offset(pose, breathing);
-    let snap = |value: f32| (value / 8.0).round() * 8.0;
-    let gaze_x = snap(eye_state.offset.x);
+    let scale = crate::rendering::DISPLAY_SCALE;
+    let gaze_x =
+        super::acting::stable_step(eye_state.offset.x / scale, eye_state.displayed.x / scale)
+            * scale;
     // Keep a 3x3 pupil inside the rounded socket, including diagonal targets.
     let gaze_y = if gaze_x == 0.0 {
-        snap(eye_state.offset.y)
+        super::acting::stable_step(eye_state.offset.y / scale, eye_state.displayed.y / scale)
+            * scale
     } else {
         0.0
     };
+    eye_state.displayed = Vec2::new(gaze_x, gaze_y);
     for (pupil, mut transform, mut visibility) in &mut pupils {
         *visibility = if pose.face == super::visual::FaceFrame::BlinkClosed {
             Visibility::Hidden

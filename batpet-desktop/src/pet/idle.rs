@@ -622,12 +622,25 @@ pub fn update_ear_twitch(
 pub fn update_blink(
     time: Res<Time>,
     mut scheduler: ResMut<IdleScheduler>,
-    mut bats: Query<(&mut BlinkState, &mut AnimationIntent), With<Bat>>,
+    mut bats: Query<(&mut BlinkState, &mut AnimationIntent, &AttentionMotion), With<Bat>>,
     debug: Res<DebugOptions>,
 ) {
-    for (mut blink, mut intent) in &mut bats {
+    for (mut blink, mut intent, attention) in &mut bats {
+        if attention.settle_blink && matches!(blink.phase, BlinkPhase::Waiting) {
+            blink.begin_closed(0.30);
+            blink.double_blink_pending = false;
+            scheduler.reserve_blink_action();
+        }
         let event = blink.tick(time.delta_secs(), &mut scheduler, intent.attention.level);
         intent.face = blink.face_frame();
+        if matches!(
+            attention.reaction_phase,
+            super::acting::ReactionPhase::Recoiling
+        ) && attention.reaction_elapsed < 0.12
+            && intent.face == FaceFrame::Open
+        {
+            intent.face = FaceFrame::BlinkHalf;
+        }
 
         if debug.enabled {
             match event {

@@ -20,7 +20,7 @@ pub const VERY_NEAR_START_DISTANCE: f32 = 104.0;
 pub const VERY_NEAR_FULL_DISTANCE: f32 = 64.0;
 
 pub const ATTENTION_LEVEL_SMOOTHING: f32 = 5.0;
-pub const HEAD_FOLLOW_SMOOTHING: f32 = 7.5;
+pub const HEAD_FOLLOW_SMOOTHING: f32 = 4.0;
 pub const BODY_FOLLOW_SMOOTHING: f32 = 2.8;
 pub const EAR_FOLLOW_SMOOTHING: f32 = 5.0;
 
@@ -38,9 +38,9 @@ pub const BODY_DIRECTION_DEAD_ZONE: f32 = 0.12;
 
 pub const VERY_NEAR_TRIGGER_FACTOR: f32 = 0.55;
 pub const VERY_NEAR_ANTICIPATION_DURATION: f32 = 0.10;
-pub const VERY_NEAR_RECOIL_DURATION: f32 = 0.18;
-pub const VERY_NEAR_RECOVERY_DURATION: f32 = 0.55;
-pub const VERY_NEAR_REACTION_COOLDOWN: f32 = 2.8;
+pub const VERY_NEAR_RECOIL_DURATION: f32 = 0.24;
+pub const VERY_NEAR_RECOVERY_DURATION: f32 = 0.85;
+pub const VERY_NEAR_REACTION_COOLDOWN: f32 = 4.2;
 pub const VERY_NEAR_RECOIL_OFFSET: f32 = 0.65;
 pub const VERY_NEAR_COMPRESSION: f32 = 0.008;
 
@@ -78,6 +78,15 @@ pub enum ReactionPhase {
 
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub struct AttentionMotion {
+    pub perceived_delta: Vec2,
+    pub absent_secs: f32,
+    pub still_secs: f32,
+    pub settle_blink: bool,
+    last_cursor: Option<Vec2>,
+    candidate_direction: EyeDirection,
+    direction_age: f32,
+    followed_head: Vec2,
+    head_step: f32,
     pub level: f32,
     pub target_level: f32,
     pub head_offset: Vec2,
@@ -97,6 +106,15 @@ pub struct AttentionMotion {
 impl Default for AttentionMotion {
     fn default() -> Self {
         Self {
+            perceived_delta: Vec2::ZERO,
+            absent_secs: 10.0,
+            still_secs: 0.0,
+            settle_blink: false,
+            last_cursor: None,
+            candidate_direction: EyeDirection::Center,
+            direction_age: 0.0,
+            followed_head: Vec2::ZERO,
+            head_step: 0.0,
             level: 0.0,
             target_level: 0.0,
             head_offset: Vec2::ZERO,
@@ -226,6 +244,7 @@ pub fn update_attention(
     windows: Query<&Window, With<PrimaryWindow>>,
     mut bats: Query<(&Transform, &mut AttentionMotion, &mut AnimationIntent), With<Bat>>,
     debug: Res<DebugOptions>,
+    mut scheduler: ResMut<IdleScheduler>,
 ) {
     let Some(window) = windows.iter().next() else {
         return;
@@ -235,12 +254,15 @@ pub fn update_attention(
 
     for (transform, mut attention, mut intent) in &mut bats {
         let delta = cursor_delta(cursor.position, window, transform);
-        let profile = if cursor.position.is_some() {
-            attention_profile(delta)
-        } else {
-            AttentionProfile::default()
-        };
+        let profile = perceive(&mut attention, cursor.position, delta, delta_secs);
         let direction_changed = attention.direction != profile.direction;
+
+        // Do not release a queue of overdue idle gestures when the user leaves.
+        if profile.level > IDLE_GAZE_MAX_ATTENTION || attention.absent_secs < 1.8 {
+            scheduler.adjustment_timer = scheduler.adjustment_timer.max(2.4);
+            scheduler.ear_twitch_timer = scheduler.ear_twitch_timer.max(3.2);
+            scheduler.gaze_timer = scheduler.gaze_timer.max(4.0);
+        }
 
         attention.target_level = profile.level;
         attention.level = damp(
@@ -249,10 +271,20 @@ pub fn update_attention(
             ATTENTION_LEVEL_SMOOTHING,
             delta_secs,
         );
-        attention.target_head_offset = profile.head_target;
+        if profile.direction != attention.candidate_direction {
+            attention.candidate_direction = profile.direction;
+            attention.direction_age = 0.0;
+        } else {
+            attention.direction_age += delta_secs;
+        }
+        // Eyes get the live target; the head commits only after a short look.
+        if attention.direction_age >= 0.22 {
+            attention.followed_head = profile.head_target;
+        }
+        attention.target_head_offset = attention.followed_head;
         attention.head_offset = damp_vec2(
             attention.head_offset,
-            profile.head_target,
+            attention.target_head_offset,
             HEAD_FOLLOW_SMOOTHING,
             delta_secs,
         );
@@ -271,6 +303,7 @@ pub fn update_attention(
             delta_secs,
         );
         attention.direction = profile.direction;
+        attention.head_step = stable_step(attention.head_offset.x, attention.head_step);
 
         let reaction_started =
             update_reaction(&mut attention, profile.very_near_factor, delta, delta_secs);
@@ -290,7 +323,7 @@ pub fn update_attention(
 
         intent.attention = AttentionIntent {
             level: attention.level,
-            head_offset: attention.head_offset,
+            head_offset: Vec2::new(attention.head_step, attention.head_offset.y),
             body_offset: attention.body_offset + reaction_offset,
             ear_alertness: attention.ear_alertness,
             body_compression,
@@ -308,6 +341,66 @@ pub fn update_attention(
         if reaction_started && debug.enabled {
             info!("very-near reaction started");
         }
+    }
+}
+
+/// Tiny perceptual memory: ignore hand tremor, become comfortable with a still
+/// cursor, and keep watching the last position briefly after it disappears.
+fn perceive(
+    motion: &mut AttentionMotion,
+    cursor: Option<Vec2>,
+    delta: Vec2,
+    dt: f32,
+) -> AttentionProfile {
+    motion.settle_blink = false;
+    if let Some(position) = cursor.filter(|p| p.is_finite()) {
+        let moved = motion
+            .last_cursor
+            .is_none_or(|last| last.distance(position) > 6.0);
+        let old_still = motion.still_secs;
+        if moved {
+            motion.still_secs = 0.0;
+            motion.last_cursor = Some(position);
+        } else {
+            motion.still_secs += dt;
+        }
+        motion.absent_secs = 0.0;
+        motion.perceived_delta = delta;
+        let mut profile = attention_profile(delta);
+        motion.settle_blink = old_still < 2.8 && motion.still_secs >= 2.8 && profile.level > 0.22;
+        let comfort = smoothstep(((motion.still_secs - 1.2) / 3.0).clamp(0.0, 1.0));
+        profile.head_target *= 1.0 - comfort * 0.72;
+        profile.body_target *= 1.0 - comfort * 0.72;
+        profile.ear_target *= 1.0 - comfort * 0.88;
+        profile.level *= 1.0 - comfort * 0.65;
+        profile
+    } else {
+        let old_absent = motion.absent_secs;
+        motion.absent_secs += dt;
+        motion.still_secs = 0.0;
+        motion.last_cursor = None;
+        motion.settle_blink = old_absent < 1.0 && motion.absent_secs >= 1.0 && motion.level > 0.05;
+        let mut profile = attention_profile(motion.perceived_delta);
+        let memory = 1.0 - smoothstep(((motion.absent_secs - 0.55) / 1.1).clamp(0.0, 1.0));
+        profile.level *= memory;
+        profile.head_target *= memory;
+        profile.body_target *= memory;
+        profile.ear_target *= memory * 0.6;
+        profile.very_near_factor = 0.0;
+        profile
+    }
+}
+
+/// Different enter/leave thresholds prevent pixel chatter at pose boundaries.
+pub(crate) fn stable_step(value: f32, previous: f32) -> f32 {
+    if value > 0.65 {
+        1.0
+    } else if value < -0.65 {
+        -1.0
+    } else if value.abs() < 0.30 || value * previous < 0.0 {
+        0.0
+    } else {
+        previous
     }
 }
 
@@ -519,6 +612,148 @@ fn ease_in_out(value: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn still_cursor_becomes_familiar_and_does_not_repeat_the_settle_blink() {
+        let mut motion = AttentionMotion::default();
+        let position = Vec2::new(240., 180.);
+        let initial = perceive(&mut motion, Some(position), Vec2::new(80., 0.), 0.016);
+        let mut last = initial.clone();
+        let mut blinks = 0;
+        for i in 0..360 {
+            let tremor = Vec2::new(if i % 2 == 0 { 1. } else { -1. }, 0.);
+            last = perceive(
+                &mut motion,
+                Some(position + tremor),
+                Vec2::new(80., 0.),
+                1. / 60.,
+            );
+            blinks += usize::from(motion.settle_blink);
+        }
+        assert!(last.head_target.length() < initial.head_target.length() * 0.4);
+        assert!(last.ear_target < initial.ear_target * 0.2);
+        assert_eq!(blinks, 1);
+        let renewed = perceive(
+            &mut motion,
+            Some(position + Vec2::X * 30.),
+            Vec2::new(110., 0.),
+            0.016,
+        );
+        assert!(renewed.head_target.length() > last.head_target.length());
+    }
+
+    #[test]
+    fn eyes_lead_the_head_and_departure_has_a_finite_follow_through() {
+        use crate::pet::{BreathingMotion, EyePupil, EyeState, VisualPose};
+        use bevy::prelude::*;
+        use std::time::Duration;
+        let mut app = App::new();
+        app.insert_resource(Time::<()>::default())
+            .insert_resource(DebugOptions { enabled: false })
+            .insert_resource(CursorState {
+                position: Some(Vec2::new(260., 180.)),
+            })
+            .init_resource::<IdleScheduler>()
+            .init_resource::<EyeState>()
+            .add_systems(
+                Update,
+                (
+                    update_attention,
+                    crate::pet::resolve_visual_pose,
+                    crate::pet::update_eyes,
+                )
+                    .chain(),
+            );
+        app.world_mut().spawn((
+            Window {
+                resolution: bevy::window::WindowResolution::new(320, 320),
+                ..default()
+            },
+            PrimaryWindow,
+        ));
+        let bat = app
+            .world_mut()
+            .spawn((
+                Bat,
+                Transform::from_xyz(0., 152., 0.),
+                AttentionMotion::default(),
+                AnimationIntent::default(),
+                VisualPose::default(),
+                BreathingMotion::default(),
+            ))
+            .id();
+        app.world_mut().spawn((
+            EyePupil {
+                base_position: Vec2::ZERO,
+            },
+            Transform::default(),
+            Visibility::Visible,
+        ));
+        let tick = |app: &mut App| {
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(Duration::from_secs_f32(1. / 60.));
+            app.update();
+        };
+        for _ in 0..10 {
+            tick(&mut app);
+        }
+        assert_eq!(app.world().resource::<EyeState>().displayed.x, 8.);
+        assert_eq!(
+            app.world()
+                .get::<VisualPose>(bat)
+                .unwrap()
+                .attention
+                .head_offset
+                .x,
+            0.
+        );
+        for _ in 0..40 {
+            tick(&mut app);
+        }
+        assert_eq!(
+            app.world()
+                .get::<VisualPose>(bat)
+                .unwrap()
+                .attention
+                .head_offset
+                .x,
+            1.
+        );
+        app.world_mut().resource_mut::<CursorState>().position = None;
+        for _ in 0..15 {
+            tick(&mut app);
+        }
+        assert_eq!(app.world().resource::<EyeState>().displayed.x, 8.);
+        for _ in 0..150 {
+            tick(&mut app);
+        }
+        assert_eq!(app.world().resource::<EyeState>().displayed, Vec2::ZERO);
+        assert_eq!(
+            app.world()
+                .get::<VisualPose>(bat)
+                .unwrap()
+                .attention
+                .head_offset
+                .x,
+            0.
+        );
+    }
+
+    #[test]
+    fn pixel_pose_ignores_small_oscillations_at_the_switch_boundary() {
+        let mut step = 0.;
+        for value in [0.49, 0.51, 0.48, 0.52] {
+            step = stable_step(value, step);
+        }
+        assert_eq!(step, 0.);
+        step = stable_step(0.7, step);
+        for value in [0.51, 0.49, 0.53, 0.45] {
+            step = stable_step(value, step);
+        }
+        assert_eq!(step, 1.);
+        assert_eq!(stable_step(0.2, step), 0.);
+    }
 
     #[test]
     fn attention_is_high_near_and_fades_to_zero_far_away() {

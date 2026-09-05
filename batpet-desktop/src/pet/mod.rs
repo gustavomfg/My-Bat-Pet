@@ -36,11 +36,16 @@ pub fn capture_cursor(
     mut left_events: MessageReader<CursorLeft>,
     mut cursor: ResMut<CursorState>,
     debug: Res<DebugOptions>,
+    windows: Query<&Window, With<PrimaryWindow>>,
 ) {
     let entered = entered_events.read().next().is_some();
 
     for event in moved_events.read() {
-        cursor.position = Some(event.position);
+        // X11 can report stale/outside coordinates while a window is placed.
+        // Treat those as absence, not as an unseen stimulus to keep tracking.
+        cursor.position = windows.iter().next().and_then(|window| {
+            cursor_inside_window(event.position, window).then_some(event.position)
+        });
     }
 
     for _ in left_events.read() {
@@ -52,6 +57,14 @@ pub fn capture_cursor(
     if entered && debug.enabled {
         info!("cursor entered window");
     }
+}
+
+fn cursor_inside_window(position: bevy::prelude::Vec2, window: &Window) -> bool {
+    position.is_finite()
+        && position.x >= 0.0
+        && position.y >= 0.0
+        && position.x < window.resolution.width()
+        && position.y < window.resolution.height()
 }
 
 pub fn trigger_reaction(
@@ -113,6 +126,23 @@ pub fn cursor_over_bat(cursor: bevy::prelude::Vec2, window: &Window, bat: &Trans
 mod tests {
     use super::*;
     use bevy::prelude::Vec2;
+
+    #[test]
+    fn startup_and_outside_coordinates_are_not_presence() {
+        let window = Window {
+            resolution: bevy::window::WindowResolution::new(320, 320),
+            ..Default::default()
+        };
+        assert!(cursor_inside_window(Vec2::new(160., 180.), &window));
+        for position in [
+            Vec2::new(960., 572.),
+            Vec2::new(-1., 180.),
+            Vec2::new(320., 180.),
+            Vec2::splat(f32::NAN),
+        ] {
+            assert!(!cursor_inside_window(position, &window));
+        }
+    }
 
     #[test]
     fn detects_cursor_inside_and_outside_the_bat_hitbox() {

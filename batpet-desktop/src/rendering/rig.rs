@@ -138,7 +138,10 @@ pub fn animate(
                     (left, pose.body),
                     (true, BodyFrame::EarTwitchLeft) | (false, BodyFrame::EarTwitchRight)
                 );
-                let alert = pose.attention.ear_alertness > 0.55;
+                // The ear facing the stimulus listens first; both rise only
+                // for a genuinely close encounter, then settle independently.
+                let facing = left == (pose.attention.body_offset.x < 0.0);
+                let alert = pose.attention.ear_alertness > if facing { 0.42 } else { 0.92 };
                 head + Vec2::new(
                     if twitch {
                         if left { S } else { -S }
