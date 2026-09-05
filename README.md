@@ -19,6 +19,14 @@ Em repouso há respiração, piscadas irregulares, olhares sustentados, reajuste
 de postura e movimentos ocasionais das orelhas. Pausas e cooldowns evitam
 sobrepor todos os gestos.
 
+A identidade visual atual é a base oficial. A primeira iteração de presença
+preserva esse desenho: os olhos percebem antes da cabeça, uma orelha acompanha
+primeiro, e o morcego relaxa diante de um cursor parado. Ao sair da janela,
+ele sustenta brevemente o último olhar antes de retomar o repouso.
+
+[Comparação de character acting](docs/visual-review/presence-before-after.gif) ·
+[Decisões da iteração de presença](docs/PRESENCE_ACTING.md)
+
 ## Direção visual
 
 A textura original e sua paleta foram preservadas. Um rig leve recorta a mesma
