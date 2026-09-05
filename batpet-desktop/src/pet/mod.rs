@@ -12,9 +12,10 @@ pub use components::{Bat, ClickReaction, CursorState, EyePupil};
 pub use eyes::{EyeState, update_eyes};
 #[allow(unused_imports)]
 pub use flight::{
-    FlightDebug, FlightMotion, FlightTarget, Perch, TAKEOFF_SUPPORT_HOLD, finish_landing,
-    log_flight_entered, start_flying, start_landing, start_returning, start_takeoff,
-    trigger_flight, update_flying, update_landing, update_returning, update_takeoff,
+    FlightDebug, FlightMotion, FlightTarget, FlightVisualFrame, FlightVisualIntent, Perch,
+    TAKEOFF_SUPPORT_HOLD, finish_landing, log_flight_entered, start_flying, start_landing,
+    start_returning, start_takeoff, trigger_flight, update_flight_visual, update_flying,
+    update_landing, update_returning, update_takeoff,
 };
 pub use idle::{
     BlinkState, BreathingMotion, EarTwitchMotion, IdleAdjustmentMotion, IdleMotion, IdleScheduler,

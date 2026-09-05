@@ -8,13 +8,17 @@ use bevy::{
 use crate::{
     pet::{
         AnimationIntent, AttentionMotion, Bat, BlinkState, BreathingMotion, ClickReaction,
-        EarTwitchMotion, EyePupil, FlightMotion, IdleAdjustmentMotion, IdleGazeMotion, IdleMotion,
-        Perch, VisualPose,
+        EarTwitchMotion, EyePupil, FlightMotion, FlightVisualIntent, IdleAdjustmentMotion,
+        IdleGazeMotion, IdleMotion, Perch, VisualPose,
     },
     window::WINDOW_HEIGHT,
 };
 
 pub const BAT_SPRITE_PATH: &str = "bat/idle/bat_idle.png";
+pub const BAT_FLIGHT_SPRITE_PATH: &str = "bat/flight/bat_flight_sheet.png";
+pub const FLIGHT_SPRITE_WIDTH: u32 = 40;
+pub const FLIGHT_FRAME_HEIGHT: u32 = 32;
+pub const FLIGHT_FRAME_COUNT: u32 = 4;
 pub const SPRITE_WIDTH: u32 = 32;
 pub const SPRITE_HEIGHT: u32 = 32;
 pub const DISPLAY_SCALE: f32 = 8.0;
@@ -49,8 +53,14 @@ pub fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             base,
             Visibility::Visible,
         ))
+        .insert(FlightVisualIntent::default())
         .id();
-    rig::spawn(&mut commands, bat, asset_server.load(BAT_SPRITE_PATH));
+    rig::spawn_with_flight(
+        &mut commands,
+        bat,
+        asset_server.load(BAT_SPRITE_PATH),
+        asset_server.load(BAT_FLIGHT_SPRITE_PATH),
+    );
     commands.entity(bat).with_children(|parent| {
         for base_position in [
             pixel_top_left_to_local(LEFT_PUPIL_TOP_LEFT),
@@ -95,6 +105,14 @@ mod tests {
         assert_eq!(BAT_SPRITE_PATH, "bat/idle/bat_idle.png");
         assert_eq!(SPRITE_WIDTH, 32);
         assert_eq!(SPRITE_HEIGHT, 32);
+    }
+
+    #[test]
+    fn flight_sheet_has_four_pixel_perfect_frames() {
+        assert_eq!(BAT_FLIGHT_SPRITE_PATH, "bat/flight/bat_flight_sheet.png");
+        assert_eq!(FLIGHT_SPRITE_WIDTH, 40);
+        assert_eq!(FLIGHT_FRAME_HEIGHT, 32);
+        assert_eq!(FLIGHT_FRAME_COUNT, 4);
     }
 
     #[test]

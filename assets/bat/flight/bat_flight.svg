@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="32" viewBox="0 0 40 32" shape-rendering="crispEdges">
+  <!-- Left wing: a broad, scalloped membrane built from the same dark purple palette. -->
+  <g transform="translate(1 0)">
+    <path fill="#2e1150" d="M14 8H11V6H8V4H5V6H2V8H0V11H1V22H4V25H8V23H11V21H14Z" />
+    <path fill="#5a398d" d="M13 10H10V8H7V6H5V9H3V20H6V22H8V20H11V18H13Z" />
+    <path fill="#8754b7" d="M12 10H9V8H7V7H6V10H4V17H6V18H8V16H10V14H12Z" />
+    <path fill="#ac78d2" d="M10 8H8V7H7V9H9V11H11V10H12V9H10Z" />
+    <path fill="#3d226a" d="M2 18H4V21H7V23H4V22H2ZM8 17H10V20H8ZM11 15H13V18H11Z" />
+  </g>
+
+  <!-- The right wing is a pixel-mirrored counterpart, with no filtering or rotation. -->
+  <g transform="translate(39 0) scale(-1 1)">
+    <path fill="#2e1150" d="M14 8H11V6H8V4H5V6H2V8H0V11H1V22H4V25H8V23H11V21H14Z" />
+    <path fill="#5a398d" d="M13 10H10V8H7V6H5V9H3V20H6V22H8V20H11V18H13Z" />
+    <path fill="#8754b7" d="M12 10H9V8H7V7H6V10H4V17H6V18H8V16H10V14H12Z" />
+    <path fill="#ac78d2" d="M10 8H8V7H7V9H9V11H11V10H12V9H10Z" />
+    <path fill="#3d226a" d="M2 18H4V21H7V23H4V22H2ZM8 17H10V20H8ZM11 15H13V18H11Z" />
+  </g>
+</svg>

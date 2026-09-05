@@ -6,7 +6,10 @@ use bevy::{
 
 use crate::{
     debug::DebugOptions,
-    pet::{AttentionMotion, Bat, BreathingMotion, CursorState, EyePupil, VisualPose},
+    pet::{
+        AttentionMotion, Bat, BreathingMotion, CursorState, EyePupil, FlightVisualIntent,
+        VisualPose,
+    },
     rendering::EYE_CENTER_LOCAL,
 };
 
@@ -72,7 +75,13 @@ pub fn update_eyes(
     cursor: Res<CursorState>,
     windows: Query<&Window, With<PrimaryWindow>>,
     bats: Query<
-        (&Transform, &AttentionMotion, &VisualPose, &BreathingMotion),
+        (
+            &Transform,
+            &AttentionMotion,
+            &VisualPose,
+            &BreathingMotion,
+            Option<&FlightVisualIntent>,
+        ),
         (With<Bat>, Without<EyePupil>),
     >,
     gazes: Query<&IdleGazeMotion, With<Bat>>,
@@ -83,7 +92,8 @@ pub fn update_eyes(
     let Some(window) = windows.iter().next() else {
         return;
     };
-    let Some((bat_transform, attention, pose, breathing)) = bats.iter().next() else {
+    let Some((bat_transform, attention, pose, breathing, flight_intent)) = bats.iter().next()
+    else {
         return;
     };
 
@@ -127,6 +137,7 @@ pub fn update_eyes(
     }
 
     let head = crate::rendering::rig::head_offset(pose, breathing);
+    let flight_body_offset = flight_intent.map_or(Vec2::ZERO, |intent| intent.body_offset);
     let scale = crate::rendering::DISPLAY_SCALE;
     let gaze_x =
         super::acting::stable_step(eye_state.offset.x / scale, eye_state.displayed.x / scale)
@@ -146,7 +157,7 @@ pub fn update_eyes(
             Visibility::Visible
         };
         transform.translation.x = pupil.base_position.x + gaze_x + head.x;
-        transform.translation.y = pupil.base_position.y + gaze_y + head.y;
+        transform.translation.y = pupil.base_position.y + gaze_y + head.y + flight_body_offset.y;
     }
 }
 

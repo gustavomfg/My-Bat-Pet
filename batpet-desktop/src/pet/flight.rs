@@ -11,9 +11,9 @@ use crate::debug::DebugOptions;
 
 use super::{Bat, BatState};
 
-pub const TAKEOFF_TARGET_OFFSET: Vec2 = Vec2::new(32.0, -32.0);
-pub const FLIGHT_TARGET_OFFSET: Vec2 = Vec2::new(-72.0, -40.0);
-pub const RETURN_APPROACH_OFFSET: Vec2 = Vec2::new(40.0, -24.0);
+pub const TAKEOFF_TARGET_OFFSET: Vec2 = Vec2::new(4.0, -32.0);
+pub const FLIGHT_TARGET_OFFSET: Vec2 = Vec2::new(0.0, -48.0);
+pub const RETURN_APPROACH_OFFSET: Vec2 = Vec2::new(0.0, -24.0);
 
 pub const TAKEOFF_SUPPORT_HOLD: f32 = 0.16;
 pub const FLIGHT_DWELL: f32 = 0.85;
@@ -23,6 +23,52 @@ pub const DEFAULT_MAX_SPEED: f32 = 190.0;
 pub const DEFAULT_MAX_ACCELERATION: f32 = 420.0;
 pub const DEFAULT_ARRIVAL_RADIUS: f32 = 24.0;
 pub const DEFAULT_SLOW_RADIUS: f32 = 96.0;
+const STAGE_ARRIVAL_RADIUS: f32 = 8.0;
+const STAGE_SLOW_RADIUS: f32 = 48.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FlightVisualFrame {
+    #[default]
+    Rest,
+    Coil,
+    Lift,
+    Spread,
+    Power,
+    Recover,
+    Reach,
+}
+
+impl FlightVisualFrame {
+    pub const fn sheet_index(self) -> u32 {
+        match self {
+            Self::Lift => 0,
+            Self::Spread | Self::Coil | Self::Reach => 1,
+            Self::Power => 2,
+            Self::Recover | Self::Rest => 3,
+        }
+    }
+}
+
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct FlightVisualIntent {
+    pub frame: FlightVisualFrame,
+    pub facing: i8,
+    pub speed: f32,
+    pub vertical_speed: f32,
+    pub body_offset: Vec2,
+}
+
+impl Default for FlightVisualIntent {
+    fn default() -> Self {
+        Self {
+            frame: FlightVisualFrame::Rest,
+            facing: 1,
+            speed: 0.0,
+            vertical_speed: 0.0,
+            body_offset: Vec2::ZERO,
+        }
+    }
+}
 
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub struct Perch {
@@ -175,6 +221,75 @@ pub fn trigger_flight(
     }
 }
 
+pub fn update_flight_visual(
+    state: Res<State<BatState>>,
+    mut bats: Query<(&FlightMotion, &mut FlightVisualIntent), With<Bat>>,
+) {
+    for (motion, mut intent) in &mut bats {
+        let max_speed = motion.max_speed.max(1.0);
+        intent.speed = (motion.velocity.length() / max_speed).clamp(0.0, 1.0);
+        intent.vertical_speed = (motion.velocity.y / max_speed).clamp(-1.0, 1.0);
+        if motion.velocity.x.abs() > 3.0 {
+            intent.facing = if motion.velocity.x.is_sign_negative() {
+                -1
+            } else {
+                1
+            };
+        }
+
+        let in_flight = matches!(
+            state.get(),
+            BatState::Takeoff | BatState::Flying | BatState::Returning | BatState::Landing
+        );
+        if !in_flight {
+            intent.frame = FlightVisualFrame::Rest;
+            intent.body_offset = Vec2::ZERO;
+            continue;
+        }
+
+        intent.frame = visual_frame(*state.get(), motion);
+        intent.body_offset = match intent.frame {
+            FlightVisualFrame::Lift => Vec2::Y * crate::rendering::DISPLAY_SCALE,
+            FlightVisualFrame::Power => Vec2::NEG_Y * crate::rendering::DISPLAY_SCALE,
+            FlightVisualFrame::Recover => Vec2::Y * crate::rendering::DISPLAY_SCALE,
+            _ => Vec2::ZERO,
+        };
+    }
+}
+
+fn visual_frame(state: BatState, motion: &FlightMotion) -> FlightVisualFrame {
+    match state {
+        BatState::Takeoff if motion.stage_elapsed < TAKEOFF_SUPPORT_HOLD => FlightVisualFrame::Coil,
+        BatState::Takeoff if motion.stage_elapsed < 0.42 => FlightVisualFrame::Lift,
+        BatState::Takeoff => FlightVisualFrame::Spread,
+        BatState::Flying => wingbeat_frame(motion.stage_elapsed, motion.arrived),
+        BatState::Returning if motion.stage_elapsed < 0.26 => FlightVisualFrame::Power,
+        BatState::Returning => wingbeat_frame(motion.stage_elapsed, motion.arrived),
+        BatState::Landing => {
+            let distance = motion.position.distance(motion.target.position);
+            if distance <= 64.0 || motion.arrived {
+                FlightVisualFrame::Reach
+            } else {
+                FlightVisualFrame::Recover
+            }
+        }
+        _ => FlightVisualFrame::Rest,
+    }
+}
+
+fn wingbeat_frame(stage_elapsed: f32, arrived: bool) -> FlightVisualFrame {
+    if arrived {
+        return FlightVisualFrame::Spread;
+    }
+    let phase = (stage_elapsed * 4.8).rem_euclid(1.0);
+    match phase {
+        p if p < 0.18 => FlightVisualFrame::Lift,
+        p if p < 0.43 => FlightVisualFrame::Spread,
+        p if p < 0.64 => FlightVisualFrame::Power,
+        _ => FlightVisualFrame::Recover,
+    }
+}
+
 pub fn start_takeoff(
     mut bats: Query<
         (
@@ -190,26 +305,34 @@ pub fn start_takeoff(
         motion.position = finite_vec2(transform.translation.truncate(), perch.anchor);
         motion.velocity = Vec2::ZERO;
         motion.acceleration = Vec2::ZERO;
-        motion.set_target(FlightTarget::new(perch.anchor + TAKEOFF_TARGET_OFFSET));
+        motion.set_target(stage_target(perch.anchor + TAKEOFF_TARGET_OFFSET));
         *pose = super::VisualPose::default();
     }
 }
 
 pub fn start_flying(mut bats: Query<(&Perch, &mut FlightMotion), With<Bat>>) {
     for (perch, mut motion) in &mut bats {
-        motion.set_target(FlightTarget::new(perch.anchor + FLIGHT_TARGET_OFFSET));
+        motion.set_target(stage_target(perch.anchor + FLIGHT_TARGET_OFFSET));
     }
 }
 
 pub fn start_returning(mut bats: Query<(&Perch, &mut FlightMotion), With<Bat>>) {
     for (perch, mut motion) in &mut bats {
-        motion.set_target(FlightTarget::new(perch.approach_target()));
+        motion.set_target(stage_target(perch.approach_target()));
     }
 }
 
 pub fn start_landing(mut bats: Query<(&Perch, &mut FlightMotion), With<Bat>>) {
     for (perch, mut motion) in &mut bats {
-        motion.set_target(FlightTarget::new(perch.anchor));
+        motion.set_target(stage_target(perch.anchor));
+    }
+}
+
+fn stage_target(position: Vec2) -> FlightTarget {
+    FlightTarget {
+        position,
+        arrival_radius: STAGE_ARRIVAL_RADIUS,
+        slow_radius: STAGE_SLOW_RADIUS,
     }
 }
 
@@ -503,6 +626,39 @@ mod tests {
         };
         assert!(debug.loop_mode);
         assert_eq!(debug.cycles, 0);
+    }
+
+    #[test]
+    fn visual_frames_map_to_the_four_authored_wing_phases() {
+        assert_eq!(FlightVisualFrame::Lift.sheet_index(), 0);
+        assert_eq!(FlightVisualFrame::Spread.sheet_index(), 1);
+        assert_eq!(FlightVisualFrame::Power.sheet_index(), 2);
+        assert_eq!(FlightVisualFrame::Recover.sheet_index(), 3);
+        assert!(FlightVisualFrame::Power.sheet_index() < 4);
+    }
+
+    #[test]
+    fn flying_visual_intent_uses_motion_direction_and_stays_finite() {
+        let mut motion = FlightMotion::at(Vec2::ZERO);
+        motion.max_speed = 100.0;
+        motion.velocity = Vec2::new(-40.0, 25.0);
+        motion.stage_elapsed = 0.35;
+        motion.arrived = false;
+        let mut intent = FlightVisualIntent::default();
+        let frame = visual_frame(BatState::Flying, &motion);
+        intent.frame = frame;
+        intent.facing = if motion.velocity.x.is_sign_negative() {
+            -1
+        } else {
+            1
+        };
+        intent.speed = (motion.velocity.length() / motion.max_speed).clamp(0.0, 1.0);
+        intent.vertical_speed = motion.velocity.y / motion.max_speed;
+
+        assert_eq!(intent.facing, -1);
+        assert!(intent.speed.is_finite());
+        assert!(intent.vertical_speed.is_finite());
+        assert_ne!(intent.frame, FlightVisualFrame::Rest);
     }
 
     #[test]

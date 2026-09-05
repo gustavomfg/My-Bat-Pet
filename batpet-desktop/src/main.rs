@@ -80,6 +80,7 @@ fn main() {
                 pet::update_flying.run_if(in_state(BatState::Flying)),
                 pet::update_returning.run_if(in_state(BatState::Returning)),
                 pet::update_landing.run_if(in_state(BatState::Landing)),
+                pet::update_flight_visual,
                 rendering::rig::animate,
                 pet::update_eyes,
                 review::capture,
