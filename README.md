@@ -36,8 +36,9 @@ externo pendente nem geração de imagens em runtime.
 
 A janela mantém a escala 8×, nearest-neighbor e transparência. Os movimentos
 visuais são quantizados na grade lógica; a respiração insere/remove uma linha,
-sem rotação ou escala fracionária. O renderer usa 27 quads e duas texturas
-(incluindo a textura branca padrão); a montagem acontece uma única vez.
+sem rotação ou escala fracionária. O rig de repouso usa 27 quads e suas
+texturas são montadas uma única vez; Flight acrescenta um sheet aéreo de quatro
+frames, também carregado uma vez e sem alocações por frame.
 
 [Comparação animada antes/depois](docs/visual-review/before-after.gif) ·
 [Poses revisadas](docs/visual-review/poses.png) ·
@@ -58,6 +59,12 @@ Durante a saída, o suporte permanece por uma breve antecipação e então se oc
 Na aproximação final ele reaparece antes da chegada exata, para que a relação
 entre garras e perch seja restabelecida. A posição renderizada continua
 quantizada em 8×; a simulação mantém valores contínuos e usa delta time.
+
+A passagem visual 0.2.1 acrescenta quatro frames de asas abertas derivados de
+`FlightMotion`. O corpo e o rosto continuam usando a identidade aprovada, mas
+um frame aéreo substitui o rig pendurado assim que as garras soltam. A direção
+usa flip horizontal e o ritmo separa lift, spread, power e recovery. Veja as
+[decisões da passagem visual](docs/FLIGHT_VISUAL.md).
 
 Para observar ciclos com logs de transição:
 

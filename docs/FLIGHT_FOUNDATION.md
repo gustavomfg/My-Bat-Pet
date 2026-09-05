@@ -106,9 +106,7 @@ grade, alvos de aproximação e valores finitos. `cargo fmt --all`,
 `cargo check --workspace` e `cargo test --workspace` são a validação de
 integração.
 
-Esta etapa deliberadamente não tenta vender o movimento como voo acabado. O
-sprite ainda usa a pose base durante o deslocamento; não há batimento de asas,
-inclinação, banking, impulso de takeoff ou secondary motion. Os alvos continuam
-locais e determinísticos, há um único perch e a janela ainda é o único espaço
-conhecido. Esses aspectos pertencem à próxima iteração visual depois que a
-fundação mecânica for observada e aprovada.
+Esta fundação deliberadamente não conhece banking, inclinação, obstáculos,
+desktop geometry ou múltiplos perches. A camada visual 0.2.1 que transforma a
+mecânica em uma pose aérea está documentada em
+[FLIGHT_VISUAL.md](FLIGHT_VISUAL.md).

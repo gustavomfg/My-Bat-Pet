@@ -98,7 +98,7 @@ pub fn capture(
     let end = if review.presence {
         26.5
     } else if review.flight {
-        8.5
+        11.5
     } else {
         12.5
     };
@@ -111,10 +111,11 @@ pub fn capture(
         exit.write(AppExit::Success);
         return;
     }
-    if t < 0.5 || t > end {
+    let capture_start = if review.flight { 0.75 } else { 0.5 };
+    if t < capture_start || t > end {
         return;
     }
-    let frame = ((t - 0.5) * 12.) as u32;
+    let frame = ((t - capture_start) * 12.) as u32;
     if frame >= review.frame {
         review.frame = frame + 1;
         if let Some(trace) = review.trace.as_mut() {
