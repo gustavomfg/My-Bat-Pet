@@ -20,11 +20,15 @@ pub struct WindowPlacement {
 }
 
 pub fn primary_window() -> Window {
+    // Xwayland on the review host exposes only opaque surfaces. This opt-in
+    // rehearsal still uses native cursor events; normal desktop stays transparent.
+    let cursor_rehearsal = std::env::args().any(|arg| arg == "--review-os-cursor")
+        && std::env::var_os("WAYLAND_DISPLAY").is_none();
     Window {
         title: "BatPet Desktop".to_owned(),
         resolution: WindowResolution::new(WINDOW_WIDTH, WINDOW_HEIGHT)
             .with_scale_factor_override(1.0),
-        transparent: true,
+        transparent: !cursor_rehearsal,
         decorations: false,
         resizable: false,
         // The final top-right position is calculated once monitor information is available.
@@ -32,7 +36,11 @@ pub fn primary_window() -> Window {
         position: WindowPosition::Automatic,
         window_level: WindowLevel::AlwaysOnTop,
         #[cfg(target_os = "linux")]
-        composite_alpha_mode: CompositeAlphaMode::PreMultiplied,
+        composite_alpha_mode: if cursor_rehearsal {
+            CompositeAlphaMode::Opaque
+        } else {
+            CompositeAlphaMode::PreMultiplied
+        },
         ..Default::default()
     }
 }
