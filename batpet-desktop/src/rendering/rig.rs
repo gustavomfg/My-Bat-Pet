@@ -2,7 +2,7 @@
 //! the eight-pixel art grid; no rotated or fractionally scaled sprites.
 use super::DISPLAY_SCALE as S;
 use crate::pet::visual::{BodyFrame, FaceFrame};
-use crate::pet::{Bat, BreathingMotion, VisualPose};
+use crate::pet::{Bat, BatState, BreathingMotion, FlightMotion, Perch, VisualPose};
 use bevy::{prelude::*, sprite::Anchor};
 
 #[derive(Component)]
@@ -12,6 +12,7 @@ pub struct Piece {
 }
 #[derive(Clone, Copy)]
 enum Kind {
+    Support,
     Fixed,
     ChestRow(u8),
     BreathFill,
@@ -26,7 +27,8 @@ pub fn spawn(commands: &mut Commands, bat: Entity, image: Handle<Image>) {
     let mut pieces = Vec::new();
     // The ear root overlaps one row so a tip can settle without a seam.
     let mut cuts = vec![
-        (0., 0., 32., 12., Kind::Fixed),
+        (0., 0., 32., 3., Kind::Support),
+        (0., 3., 32., 9., Kind::Fixed),
         (0., 19., 32., 8., Kind::Head),
         (11., 27., 10., 5., Kind::Head),
         (0., 26., 11., 6., Kind::Ear(true)),
@@ -104,15 +106,36 @@ pub fn head_offset(pose: &VisualPose, breathing: &BreathingMotion) -> Vec2 {
 
 pub fn animate(
     bats: Query<(&VisualPose, &BreathingMotion), With<Bat>>,
+    state: Res<State<BatState>>,
+    flight: Query<(&FlightMotion, &Perch), With<Bat>>,
     mut pieces: Query<(&Piece, &mut Transform, &mut Sprite, &mut Visibility)>,
 ) {
     let Some((pose, breathing)) = bats.iter().next() else {
         return;
     };
     let head = head_offset(pose, breathing);
+    let flight_motion = flight.iter().next();
     for (piece, mut transform, mut sprite, mut visibility) in &mut pieces {
         *visibility = Visibility::Visible;
         let offset = match piece.kind {
+            Kind::Support => {
+                let show_support = match state.get() {
+                    BatState::HangingIdle | BatState::Reacting => true,
+                    BatState::Takeoff => flight_motion
+                        .map(|(motion, _)| motion.stage_elapsed < crate::pet::TAKEOFF_SUPPORT_HOLD)
+                        .unwrap_or(false),
+                    BatState::Landing => flight_motion
+                        .map(|(motion, perch)| {
+                            motion.arrived || motion.position.distance(perch.anchor) <= 24.0
+                        })
+                        .unwrap_or(false),
+                    BatState::Flying | BatState::Returning => false,
+                };
+                if !show_support {
+                    *visibility = Visibility::Hidden;
+                }
+                Vec2::ZERO
+            }
             Kind::Fixed => Vec2::ZERO,
             Kind::ChestRow(row) => {
                 // Insert/remove one authored scanline rather than stretching pixels.

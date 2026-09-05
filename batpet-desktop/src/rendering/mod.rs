@@ -8,7 +8,8 @@ use bevy::{
 use crate::{
     pet::{
         AnimationIntent, AttentionMotion, Bat, BlinkState, BreathingMotion, ClickReaction,
-        EarTwitchMotion, EyePupil, IdleAdjustmentMotion, IdleGazeMotion, IdleMotion, VisualPose,
+        EarTwitchMotion, EyePupil, FlightMotion, IdleAdjustmentMotion, IdleGazeMotion, IdleMotion,
+        Perch, VisualPose,
     },
     window::WINDOW_HEIGHT,
 };
@@ -34,6 +35,8 @@ pub fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         .spawn((
             Bat,
             ClickReaction::default(),
+            Perch::hanging(base.translation.truncate()),
+            FlightMotion::at(base.translation.truncate()),
             IdleMotion::new(base.translation),
             BreathingMotion::default(),
             AttentionMotion::default(),

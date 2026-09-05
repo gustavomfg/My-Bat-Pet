@@ -1,6 +1,7 @@
 mod acting;
 mod components;
 mod eyes;
+mod flight;
 mod idle;
 mod motion;
 mod state;
@@ -9,6 +10,12 @@ pub(crate) mod visual;
 pub use acting::{AttentionMotion, IdleGazeMotion, update_attention, update_idle_gaze};
 pub use components::{Bat, ClickReaction, CursorState, EyePupil};
 pub use eyes::{EyeState, update_eyes};
+#[allow(unused_imports)]
+pub use flight::{
+    FlightDebug, FlightMotion, FlightTarget, Perch, TAKEOFF_SUPPORT_HOLD, finish_landing,
+    log_flight_entered, start_flying, start_landing, start_returning, start_takeoff,
+    trigger_flight, update_flying, update_landing, update_returning, update_takeoff,
+};
 pub use idle::{
     BlinkState, BreathingMotion, EarTwitchMotion, IdleAdjustmentMotion, IdleMotion, IdleScheduler,
     advance_idle_scheduler, apply_idle_motion, update_blink, update_breathing, update_ear_twitch,

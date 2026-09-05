@@ -23,6 +23,7 @@ fn main() {
 
     App::new()
         .insert_resource(debug)
+        .insert_resource(pet::FlightDebug::from_args())
         .insert_resource(review::Review::from_args())
         .insert_resource(ClearColor(
             if std::env::args().any(|arg| arg == "--review-light") {
@@ -57,6 +58,7 @@ fn main() {
                 window::place_window_top_right,
                 pet::capture_cursor,
                 review::drive,
+                pet::trigger_flight,
                 pet::trigger_reaction,
                 pet::animate_reaction.run_if(in_state(BatState::Reacting)),
                 pet::advance_idle_scheduler.run_if(in_state(BatState::HangingIdle)),
@@ -68,6 +70,16 @@ fn main() {
                 pet::update_blink.run_if(in_state(BatState::HangingIdle)),
                 pet::resolve_visual_pose.run_if(in_state(BatState::HangingIdle)),
                 pet::apply_idle_motion.run_if(in_state(BatState::HangingIdle)),
+            )
+                .chain(),
+        )
+        .add_systems(
+            Update,
+            (
+                pet::update_takeoff.run_if(in_state(BatState::Takeoff)),
+                pet::update_flying.run_if(in_state(BatState::Flying)),
+                pet::update_returning.run_if(in_state(BatState::Returning)),
+                pet::update_landing.run_if(in_state(BatState::Landing)),
                 rendering::rig::animate,
                 pet::update_eyes,
                 review::capture,
@@ -77,6 +89,26 @@ fn main() {
         .add_systems(
             OnEnter(BatState::Reacting),
             (pet::start_reaction, pet::log_reaction_started),
+        )
+        .add_systems(
+            OnEnter(BatState::Takeoff),
+            (pet::start_takeoff, pet::log_flight_entered),
+        )
+        .add_systems(
+            OnEnter(BatState::Flying),
+            (pet::start_flying, pet::log_flight_entered),
+        )
+        .add_systems(
+            OnEnter(BatState::Returning),
+            (pet::start_returning, pet::log_flight_entered),
+        )
+        .add_systems(
+            OnEnter(BatState::Landing),
+            (pet::start_landing, pet::log_flight_entered),
+        )
+        .add_systems(
+            OnEnter(BatState::HangingIdle),
+            (pet::finish_landing, pet::log_flight_entered),
         )
         .run();
 }
