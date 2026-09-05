@@ -12,8 +12,8 @@ cargo run -p batpet-desktop
 
 O mouse desperta atenção dentro da janela. O morcego olha primeiro, acompanha
 com o rosto e reage à proximidade. Um clique faz um pequeno encolher e espiar,
-com retorno ao repouso em 1,45 s. Essa reação substitui o antigo voo visual
-indefinido, que deslocava a pose pendurada sem animar asas.
+com retorno ao repouso em 1,45 s. A tecla `F` inicia o ciclo experimental de
+voo; `--flight-once` e `--flight-loop` permitem observá-lo repetidamente.
 
 Em repouso há respiração, piscadas irregulares, olhares sustentados, reajustes
 de postura e movimentos ocasionais das orelhas. Pausas e cooldowns evitam
@@ -43,6 +43,34 @@ sem rotação ou escala fracionária. O renderer usa 27 quads e duas texturas
 [Poses revisadas](docs/visual-review/poses.png) ·
 [Decisões e limitações](docs/VISUAL_DIRECTION.md)
 
+[Quadros do primeiro ciclo Flight](docs/visual-review/flight-cycle.png)
+
+## Flight 0.2
+
+O voo agora tem uma fundação de movimento separada da aparência. O estado passa
+por `HangingIdle → Takeoff → Flying → Return → Landing → HangingIdle`. Cada
+morcego possui um `FlightMotion` com posição, velocidade, aceleração, limites e
+alvo de chegada; o steering usa aceleração limitada e desaceleração progressiva,
+em vez de uma senoide ou de uma trajetória por frame. O local de repouso é um
+`Perch`, que guarda a âncora das garras e um ponto de aproximação para o pouso.
+
+Durante a saída, o suporte permanece por uma breve antecipação e então se oculta.
+Na aproximação final ele reaparece antes da chegada exata, para que a relação
+entre garras e perch seja restabelecida. A posição renderizada continua
+quantizada em 8×; a simulação mantém valores contínuos e usa delta time.
+
+Para observar ciclos com logs de transição:
+
+```bash
+cargo run -p batpet-desktop -- --debug --flight-loop
+```
+
+Para uma única saída automática, use `--flight-once`. A tecla `F` dispara um
+ciclo quando a janela está focada. Este milestone ainda usa um único perch e
+alvos locais; não há voo pelo desktop, colisões, pathfinding ou comportamento de
+IA. A mecânica e seus testes estão descritos em
+[docs/FLIGHT_FOUNDATION.md](docs/FLIGHT_FOUNDATION.md).
+
 ## Validação e revisão visual
 
 ```bash
@@ -63,6 +91,13 @@ Para verificar a grade e o apoio nas capturas (requer Pillow):
 
 ```bash
 python tools/verify_review.py /tmp/batpet-review
+```
+
+Para capturar um ciclo de voo no renderer real, use o modo opt-in junto do
+disparador de ciclo único:
+
+```bash
+cargo run -p batpet-desktop -- --review-dir /tmp/batpet-flight-review --review-flight --flight-once
 ```
 
 O modo de revisão simula atenção à esquerda/direita, proximidade e reação ao

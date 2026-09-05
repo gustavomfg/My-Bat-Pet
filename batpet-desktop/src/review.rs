@@ -13,6 +13,7 @@ pub struct Review {
     frame: u32,
     clicked: bool,
     presence: bool,
+    flight: bool,
     os_cursor: bool,
     trace: Option<std::fs::File>,
     external_cursor: bool,
@@ -38,6 +39,7 @@ impl Review {
             trace,
             external_cursor: std::env::args().any(|arg| arg == "--review-external-cursor"),
             presence: std::env::args().any(|arg| arg == "--review-presence"),
+            flight: std::env::args().any(|arg| arg == "--review-flight"),
             os_cursor: std::env::args().any(|arg| arg == "--review-os-cursor"),
             ..default()
         }
@@ -55,7 +57,7 @@ pub fn drive(
         return;
     }
     let t = time.elapsed_secs();
-    if review.external_cursor {
+    if review.external_cursor || review.flight {
         return;
     }
     if review.presence {
@@ -93,12 +95,18 @@ pub fn capture(
         return;
     };
     let t = time.elapsed_secs();
-    let end = if review.presence { 26.5 } else { 12.5 };
+    let end = if review.presence {
+        26.5
+    } else if review.flight {
+        8.5
+    } else {
+        12.5
+    };
     if t > end + 0.5 {
         assert_eq!(
             *state.get(),
             BatState::HangingIdle,
-            "click must return to rest"
+            "review must return to rest"
         );
         exit.write(AppExit::Success);
         return;
