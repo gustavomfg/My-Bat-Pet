@@ -1,3 +1,7 @@
+> **Especificação histórica, substituída pelo rig de pixels.** O renderer atual
+> usa recortes de `bat_idle.png` e pálpebras geométricas, sem carregar os atlases
+> descritos abaixo. Consulte [a direção visual](../../../docs/VISUAL_DIRECTION.md).
+
 # BatPet — primeira folha de poses `HangingIdle`
 
 Este arquivo descreve a arte necessária para substituir o fallback atual

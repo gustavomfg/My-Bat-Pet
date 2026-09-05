@@ -1,94 +1,68 @@
 # BatPet
 
-BatPet é um projeto de diversão, aprendizado e experimentação com Rust.
-Não é um produto pronto: a ideia é explorar a construção de um pequeno
-mascote de desktop e testar diferentes arquiteturas de renderização.
+Um companheiro de desktop em pixel-art: um pequeno morcego roxo, pendurado,
+curioso e um pouco tímido. Projeto experimental em Rust.
 
-## Estado atual
-
-O workspace mantém duas versões separadas:
-
-- `batpet`: protótipo original para terminal com `crossterm`.
-- `batpet-desktop`: prova de conceito gráfica com Bevy.
-
-A versão desktop atualmente abre uma janela pequena, transparente e sem
-moldura, com um morcego pixel-art pendurado no canto superior direito no
-estado `HangingIdle`. Os olhos acompanham o cursor dentro da janela; passar o
-mouse sobre o morcego produz atenção visual; clicar nele inicia um voo visual
-simples e limitado à janela.
-
-Não há física, comportamento complexo ou arte final de animação de asas nesta
-etapa.
-
-## BatPet 0.1 — Alive
-
-O estado `HangingIdle` agora combina comportamentos pequenos e independentes:
-respiração lenta com variação de ciclo, blink irregular (incluindo double blink
-ocasional), atenção suave ao cursor e reajustes ocasionais de postura. Os
-olhos usam smoothing, mas o alvo da pupila é contínuo em vez de ficar limitado
-às oito direções. Enquanto a nova arte não está presente, o fallback usa apenas
-escala ancorada e offsets muito pequenos; os frames revisados substituem isso
-por mudanças desenhadas de silhueta.
-
-Ainda não existe uma arte definitiva para olhos fechados. Por enquanto, o blink
-é representado ocultando temporariamente as duas pupilas. Um futuro sprite de
-pálpebras/olhos fechados poderá substituir essa visualização sem mudar o
-agendador ou o estado `BatState`.
-
-A camada `AnimationIntent` → `VisualPose` separa comportamento de frame visual.
-O renderer detecta os atlases revisados uma vez no startup e, quando presentes,
-usa os frames corporais e a camada de pálpebras; sem eles, o asset atual
-continua sendo usado como fallback de uma única célula. A especificação do
-primeiro conjunto de arte está em
-[`assets/bat/idle/SPRITE_SHEET_SPEC.md`](assets/bat/idle/SPRITE_SHEET_SPEC.md).
-
-## BatPet 0.1.2 — Character Acting
-
-O hover agora é percepção, não comando de voo: a reação de proximidade pode
-acontecer enquanto o morcego permanece pendurado; o voo continua reservado ao
-clique explícito. A nova camada de acting separa atenção contínua (olhos,
-cabeça, corpo e alerta das orelhas), reação `very-near` com antecipação,
-recuo e recuperação, e `idle gaze` ocasional quando o cursor não é relevante.
-
-Os frames corporais de atenção ainda dependem do atlas descrito na
-especificação. Sem ele, o fallback conserva apenas o deslocamento corporal
-mínimo e ancorado, enquanto os olhos mantêm a resposta contínua.
-
-## Como testar
-
-Na raiz do workspace:
+O workspace contém `batpet-desktop` (Bevy 0.19) e o protótipo independente
+`batpet` para terminal (`crossterm`).
 
 ```bash
 cargo run -p batpet-desktop
 ```
 
-Para habilitar logs de inicialização e eventos relevantes:
+O mouse desperta atenção dentro da janela. O morcego olha primeiro, acompanha
+com o rosto e reage à proximidade. Um clique faz um pequeno encolher e espiar,
+com retorno ao repouso em 1,45 s. Essa reação substitui o antigo voo visual
+indefinido, que deslocava a pose pendurada sem animar asas.
+
+Em repouso há respiração, piscadas irregulares, olhares sustentados, reajustes
+de postura e movimentos ocasionais das orelhas. Pausas e cooldowns evitam
+sobrepor todos os gestos.
+
+## Direção visual
+
+A textura original e sua paleta foram preservadas. Um rig leve recorta a mesma
+textura em suporte, linhas do peito, rosto e pontas das orelhas. Olhos e
+pálpebras são pequenos elementos geométricos na mesma grade. Não há atlas
+externo pendente nem geração de imagens em runtime.
+
+A janela mantém a escala 8×, nearest-neighbor e transparência. Os movimentos
+visuais são quantizados na grade lógica; a respiração insere/remove uma linha,
+sem rotação ou escala fracionária. O renderer usa 27 quads e duas texturas
+(incluindo a textura branca padrão); a montagem acontece uma única vez.
+
+[Comparação animada antes/depois](docs/visual-review/before-after.gif) ·
+[Poses revisadas](docs/visual-review/poses.png) ·
+[Decisões e limitações](docs/VISUAL_DIRECTION.md)
+
+## Validação e revisão visual
 
 ```bash
+cargo fmt --all -- --check
+cargo check --workspace
+cargo test --workspace
 cargo run -p batpet-desktop -- --debug
 ```
 
-O aplicativo pode ser encerrado com `Ctrl+C` ou fechando a janela.
-
-O posicionamento no canto superior direito e o always-on-top são solicitações
-ao window manager. Em Wayland/KDE o compositor pode ignorar essas propriedades;
-o projeto não usa hacks específicos para contornar essa limitação.
-
-## Validação
+Para repetir a sequência visual no renderer real:
 
 ```bash
-cargo fmt --all
-cargo check --workspace
-cargo test --workspace
+cargo run -p batpet-desktop -- --review-dir /tmp/batpet-review
+cargo run -p batpet-desktop -- --review-dir /tmp/batpet-review-light --review-light
 ```
 
-## Observações
+Para verificar a grade e o apoio nas capturas (requer Pillow):
 
-O renderer desktop usa Bevy 0.19, uma textura PNG em palette-alpha de 32×32
-pixels e nearest-neighbor para preservar o aspecto pixel-art. O arquivo de
-arte atual é apenas um asset experimental e pode ser substituído pelo atlas
-revisado futuramente.
+```bash
+python tools/verify_review.py /tmp/batpet-review
+```
 
-O projeto foi testado em Linux/KDE/Wayland. A janela solicita always-on-top,
-mas Wayland não garante esse recurso de forma portátil; nenhum hack específico
-do compositor foi incluído.
+O modo de revisão simula atenção à esquerda/direita, proximidade e reação ao
+clique, salva capturas a 12 fps e encerra após 13 segundos. Também verifica o
+retorno ao estado de repouso. A captura não roda no uso normal. A sequência usa
+os timers existentes; pequenas diferenças de quadros podem ocorrer conforme
+o tempo de inicialização e o frame rate.
+
+Encerre o aplicativo com `Ctrl+C` ou fechando a janela. Always-on-top e a
+posição superior direita são solicitações ao compositor; KDE/Wayland pode
+ignorá-las. O cursor continua limitado à área da janela.
