@@ -86,3 +86,6 @@ Ainda faltam poses desenhadas para banking, inclinação de corpo e uma asa
 independente de cada lado. O asset atual comunica voo de frente, com quatro
 frames e uma trajetória local; não há voo pelo desktop, obstáculos ou novos
 perches nesta etapa.
+
+A continuação focada em ritmo, apoio e contato está em
+[FLIGHT_ACTING.md](FLIGHT_ACTING.md), com comparação animada da versão 320312a.
