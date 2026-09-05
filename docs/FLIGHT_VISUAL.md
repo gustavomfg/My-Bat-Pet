@@ -64,7 +64,8 @@ pixel para dentro. Os alvos locais também foram reposicionados para que os
 frames abertos caibam na janela 320×320 sem reduzir a silhueta. A captura final
 foi verificada por bounds de alpha: nenhum frame aéreo ultrapassou a janela.
 
-[Quadros do ciclo observado](visual-review/flight-cycle.png)
+[Comparação antes/depois](visual-review/flight-before-after.png) ·
+[quadros do ciclo observado](visual-review/flight-cycle.png)
 
 O teste de revisão é:
 

@@ -44,7 +44,8 @@ frames, também carregado uma vez e sem alocações por frame.
 [Poses revisadas](docs/visual-review/poses.png) ·
 [Decisões e limitações](docs/VISUAL_DIRECTION.md)
 
-[Quadros do primeiro ciclo Flight](docs/visual-review/flight-cycle.png)
+[Comparação Flight antes/depois](docs/visual-review/flight-before-after.png) ·
+[quadros do primeiro ciclo](docs/visual-review/flight-cycle.png)
 
 ## Flight 0.2
 
