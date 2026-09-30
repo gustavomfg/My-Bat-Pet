@@ -67,17 +67,23 @@ um frame aéreo substitui o rig pendurado assim que as garras soltam. A direçã
 usa flip horizontal e o ritmo separa lift, spread, power e recovery. Veja as
 [decisões da passagem visual](docs/FLIGHT_VISUAL.md).
 
-Para observar ciclos com logs de transição:
+O 0.2 usava um perch e alvos locais; essa fundação agora é executada sobre o
+Habitat 0.3. O habitat de desenvolvimento contém dois apoios artificiais,
+mantém `current` e `destination` por ID e alterna A → B → A. A escolha produz um
+`FlightPlan` de posições; Flight executa a mesma sequência e o pouso atualiza a
+referência usada por Alive.
+
+Para observar viagens repetidas com logs:
 
 ```bash
-cargo run -p batpet-desktop -- --debug --flight-loop
+cargo run --bin batpet-desktop -- --debug --habitat-loop
 ```
 
-Para uma única saída automática, use `--flight-once`. A tecla `F` dispara um
-ciclo quando a janela está focada. Este milestone ainda usa um único perch e
-alvos locais; não há voo pelo desktop, colisões, pathfinding ou comportamento de
-IA. A mecânica e seus testes estão descritos em
-[docs/FLIGHT_FOUNDATION.md](docs/FLIGHT_FOUNDATION.md).
+`--flight-loop` continua aceito como alias; `--flight-once` faz uma viagem. Com
+a janela focada, `F` escolhe o próximo perch e `1`/`2` direcionam para A/B. A
+fundação e os limites da janela atual estão descritos em
+[docs/HABITAT_FOUNDATION.md](docs/HABITAT_FOUNDATION.md); o movimento original
+continua documentado em [docs/FLIGHT_FOUNDATION.md](docs/FLIGHT_FOUNDATION.md).
 
 ## Validação e revisão visual
 

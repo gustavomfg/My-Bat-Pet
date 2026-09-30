@@ -23,7 +23,7 @@ fn main() {
 
     App::new()
         .insert_resource(debug)
-        .insert_resource(pet::FlightDebug::from_args())
+        .insert_resource(pet::HabitatDebug::from_args())
         .insert_resource(review::Review::from_args())
         .insert_resource(ClearColor(
             if std::env::args().any(|arg| arg == "--review-light") {
@@ -50,6 +50,8 @@ fn main() {
         .init_resource::<CursorState>()
         .init_resource::<EyeState>()
         .init_resource::<pet::IdleScheduler>()
+        .init_resource::<pet::Habitat>()
+        .init_resource::<pet::FlightPlan>()
         .init_resource::<window::WindowPlacement>()
         .add_systems(Startup, (rendering::setup, window::log_startup))
         .add_systems(
@@ -58,7 +60,7 @@ fn main() {
                 window::place_window_top_right,
                 pet::capture_cursor,
                 review::drive,
-                pet::trigger_flight,
+                pet::trigger_habitat_flight,
                 pet::trigger_reaction,
                 pet::animate_reaction.run_if(in_state(BatState::Reacting)),
                 pet::advance_idle_scheduler.run_if(in_state(BatState::HangingIdle)),
@@ -109,7 +111,11 @@ fn main() {
         )
         .add_systems(
             OnEnter(BatState::HangingIdle),
-            (pet::finish_landing, pet::log_flight_entered),
+            (
+                pet::complete_habitat_landing,
+                pet::finish_landing,
+                pet::log_flight_entered,
+            ),
         )
         .run();
 }

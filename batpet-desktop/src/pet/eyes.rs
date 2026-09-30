@@ -173,12 +173,10 @@ pub(crate) fn cursor_delta(
 ) -> Vec2 {
     cursor_position
         .map(|position| {
-            let window_center = Vec2::new(
-                window.resolution.width() * 0.5,
-                window.resolution.height() * 0.5,
+            let cursor_world = super::window_cursor_to_simulation(
+                position,
+                Vec2::new(window.resolution.width(), window.resolution.height()),
             );
-            let cursor_world =
-                Vec2::new(position.x - window_center.x, window_center.y - position.y);
             let eye_center = bat_transform.translation.truncate() + EYE_CENTER_LOCAL;
             cursor_world - eye_center
         })

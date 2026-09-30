@@ -1,7 +1,9 @@
 mod acting;
 mod components;
+mod coordinates;
 mod eyes;
 mod flight;
+mod habitat;
 mod idle;
 mod motion;
 mod state;
@@ -9,13 +11,17 @@ pub(crate) mod visual;
 
 pub use acting::{AttentionMotion, IdleGazeMotion, update_attention, update_idle_gaze};
 pub use components::{Bat, ClickReaction, CursorState, EyePupil};
+pub use coordinates::window_cursor_to_simulation;
 pub use eyes::{EyeState, update_eyes};
 #[allow(unused_imports)]
 pub use flight::{
-    FlightDebug, FlightMotion, FlightTarget, FlightVisualFrame, FlightVisualIntent, Perch,
-    TAKEOFF_SUPPORT_HOLD, finish_landing, log_flight_entered, start_flying, start_landing,
-    start_returning, start_takeoff, trigger_flight, update_flight_visual, update_flying,
-    update_landing, update_returning, update_takeoff,
+    FlightMotion, FlightTarget, FlightVisualFrame, FlightVisualIntent, TAKEOFF_SUPPORT_HOLD,
+    finish_landing, log_flight_entered, start_flying, start_landing, start_returning,
+    start_takeoff, update_flight_visual, update_flying, update_landing, update_returning,
+    update_takeoff,
+};
+pub use habitat::{
+    FlightPlan, Habitat, HabitatDebug, complete_habitat_landing, trigger_habitat_flight,
 };
 pub use idle::{
     BlinkState, BreathingMotion, EarTwitchMotion, IdleAdjustmentMotion, IdleMotion, IdleScheduler,
@@ -113,12 +119,10 @@ pub fn trigger_reaction(
 }
 
 pub fn cursor_over_bat(cursor: bevy::prelude::Vec2, window: &Window, bat: &Transform) -> bool {
-    let window_center = bevy::prelude::Vec2::new(
-        window.resolution.width() * 0.5,
-        window.resolution.height() * 0.5,
+    let cursor_world = window_cursor_to_simulation(
+        cursor,
+        bevy::prelude::Vec2::new(window.resolution.width(), window.resolution.height()),
     );
-    let cursor_world =
-        bevy::prelude::Vec2::new(cursor.x - window_center.x, window_center.y - cursor.y);
 
     let half_width = DISPLAY_WIDTH * 0.5;
     let top = bat.translation.y;

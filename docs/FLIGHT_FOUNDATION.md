@@ -1,5 +1,8 @@
 # Flight 0.2 — fundação de movimento
 
+Este documento registra o Flight original de um único perch. A extensão para
+vários destinos está em [HABITAT_FOUNDATION.md](HABITAT_FOUNDATION.md).
+
 O milestone anterior tratava o morcego como uma criatura pendurada. O sistema
 de presença continua sendo o dono do `HangingIdle`; Flight acrescenta apenas a
 camada que permite sair do perch, atravessar um pequeno espaço de teste e

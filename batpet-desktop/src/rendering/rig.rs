@@ -4,8 +4,8 @@ use super::DISPLAY_SCALE as S;
 use super::{FLIGHT_FRAME_COUNT, FLIGHT_FRAME_HEIGHT, FLIGHT_SPRITE_WIDTH};
 use crate::pet::visual::{BodyFrame, FaceFrame};
 use crate::pet::{
-    Bat, BatState, BreathingMotion, FlightMotion, FlightVisualFrame, FlightVisualIntent, Perch,
-    VisualPose,
+    Bat, BatState, BreathingMotion, FlightMotion, FlightPlan, FlightVisualFrame,
+    FlightVisualIntent, VisualPose,
 };
 use bevy::{prelude::*, sprite::Anchor};
 
@@ -144,7 +144,8 @@ pub fn head_offset(pose: &VisualPose, breathing: &BreathingMotion) -> Vec2 {
 pub fn animate(
     bats: Query<(&VisualPose, &BreathingMotion), With<Bat>>,
     state: Res<State<BatState>>,
-    flight: Query<(&FlightMotion, &Perch), With<Bat>>,
+    flight: Query<&FlightMotion, With<Bat>>,
+    plan: Res<FlightPlan>,
     flight_intent: Query<&FlightVisualIntent, With<Bat>>,
     mut flight_sprites: Query<(&mut Sprite, &mut Transform, &mut Visibility), With<FlightSprite>>,
     mut pieces: Query<
@@ -208,11 +209,11 @@ pub fn animate(
                 let show_support = match state.get() {
                     BatState::HangingIdle | BatState::Reacting => true,
                     BatState::Takeoff => flight_motion
-                        .map(|(motion, _)| motion.stage_elapsed < crate::pet::TAKEOFF_SUPPORT_HOLD)
+                        .map(|motion| motion.stage_elapsed < crate::pet::TAKEOFF_SUPPORT_HOLD)
                         .unwrap_or(false),
                     BatState::Landing => flight_motion
-                        .map(|(motion, perch)| {
-                            motion.arrived || motion.position.distance(perch.anchor) <= 24.0
+                        .map(|motion| {
+                            motion.arrived || motion.position.distance(plan.landing) <= 24.0
                         })
                         .unwrap_or(false),
                     BatState::Flying | BatState::Returning => false,

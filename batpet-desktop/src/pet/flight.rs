@@ -1,23 +1,14 @@
 use bevy::{
-    input::ButtonInput,
     log::info,
-    prelude::{
-        Component, KeyCode, NextState, Query, Res, ResMut, Resource, State, Time, Transform, Vec2,
-        With,
-    },
+    prelude::{Component, NextState, Query, Res, ResMut, State, Time, Transform, Vec2, With},
 };
 
 use crate::debug::DebugOptions;
 
-use super::{Bat, BatState};
-
-pub const TAKEOFF_TARGET_OFFSET: Vec2 = Vec2::new(4.0, -32.0);
-pub const FLIGHT_TARGET_OFFSET: Vec2 = Vec2::new(0.0, -48.0);
-pub const RETURN_APPROACH_OFFSET: Vec2 = Vec2::new(0.0, -24.0);
+use super::{Bat, BatState, FlightPlan};
 
 pub const TAKEOFF_SUPPORT_HOLD: f32 = 0.24;
 pub const FLIGHT_DWELL: f32 = 0.85;
-pub const FLIGHT_LOOP_DELAY: f32 = 1.6;
 
 pub const DEFAULT_MAX_SPEED: f32 = 190.0;
 pub const DEFAULT_MAX_ACCELERATION: f32 = 420.0;
@@ -25,6 +16,7 @@ pub const DEFAULT_ARRIVAL_RADIUS: f32 = 24.0;
 pub const DEFAULT_SLOW_RADIUS: f32 = 96.0;
 const STAGE_ARRIVAL_RADIUS: f32 = 8.0;
 const STAGE_SLOW_RADIUS: f32 = 48.0;
+const ARRIVAL_SNAP_EPSILON: f32 = 0.5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FlightVisualFrame {
@@ -74,25 +66,6 @@ impl Default for FlightVisualIntent {
     }
 }
 
-#[derive(Component, Debug, Clone, Copy, PartialEq)]
-pub struct Perch {
-    pub anchor: Vec2,
-    pub approach_offset: Vec2,
-}
-
-impl Perch {
-    pub const fn hanging(anchor: Vec2) -> Self {
-        Self {
-            anchor,
-            approach_offset: RETURN_APPROACH_OFFSET,
-        }
-    }
-
-    pub fn approach_target(self) -> Vec2 {
-        self.anchor + self.approach_offset
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FlightTarget {
     pub position: Vec2,
@@ -112,6 +85,7 @@ impl FlightTarget {
 
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub struct FlightMotion {
+    /// Continuous simulation position in camera-local window coordinates.
     pub position: Vec2,
     pub velocity: Vec2,
     pub acceleration: Vec2,
@@ -155,73 +129,6 @@ impl FlightMotion {
         };
         self.stage_elapsed = 0.0;
         self.arrived = false;
-    }
-}
-
-#[derive(Resource, Debug, Clone, Copy, PartialEq)]
-pub struct FlightDebug {
-    pub loop_mode: bool,
-    pub once: bool,
-    pub delay: f32,
-    pub cycles: u32,
-}
-
-impl Default for FlightDebug {
-    fn default() -> Self {
-        Self {
-            loop_mode: false,
-            once: false,
-            delay: 0.0,
-            cycles: 0,
-        }
-    }
-}
-
-impl FlightDebug {
-    pub fn from_args() -> Self {
-        let loop_mode = std::env::args().any(|arg| arg == "--flight-loop");
-        let once = std::env::args().any(|arg| arg == "--flight-once");
-        Self {
-            loop_mode,
-            once,
-            delay: if loop_mode || once { 1.0 } else { 0.0 },
-            ..Default::default()
-        }
-    }
-}
-
-pub fn trigger_flight(
-    time: Res<Time>,
-    keyboard: Res<ButtonInput<KeyCode>>,
-    state: Res<State<BatState>>,
-    mut debug: ResMut<FlightDebug>,
-    mut next: ResMut<NextState<BatState>>,
-    options: Res<DebugOptions>,
-) {
-    if *state.get() != BatState::HangingIdle {
-        return;
-    }
-
-    debug.delay = (debug.delay - safe_delta(time.delta_secs())).max(0.0);
-    let keyboard_request = keyboard.just_pressed(KeyCode::KeyF);
-    let scheduled_request = (debug.loop_mode || debug.once) && debug.delay <= 0.0;
-
-    if keyboard_request || scheduled_request {
-        debug.cycles = debug.cycles.saturating_add(1);
-        debug.delay = if debug.loop_mode {
-            FLIGHT_LOOP_DELAY
-        } else {
-            f32::INFINITY
-        };
-        next.set(BatState::Takeoff);
-        if options.enabled {
-            let cycle = debug.cycles;
-            info!(
-                "flight cycle requested cycle={} trigger={}",
-                cycle,
-                if keyboard_request { "key-f" } else { "debug" }
-            );
-        }
     }
 }
 
@@ -289,60 +196,83 @@ fn wingbeat_frame(phase: f32) -> FlightVisualFrame {
 }
 
 pub fn start_takeoff(
-    mut bats: Query<
-        (
-            &Transform,
-            &Perch,
-            &mut FlightMotion,
-            &mut super::VisualPose,
-        ),
-        With<Bat>,
-    >,
+    plan: Res<FlightPlan>,
+    mut bats: Query<(&mut Transform, &mut FlightMotion, &mut super::VisualPose), With<Bat>>,
 ) {
-    for (transform, perch, mut motion, mut pose) in &mut bats {
-        motion.position = finite_vec2(transform.translation.truncate(), perch.anchor);
+    for (mut transform, mut motion, mut pose) in &mut bats {
+        motion.position = finite_vec2(plan.origin, transform.translation.truncate());
         motion.velocity = Vec2::ZERO;
         motion.acceleration = Vec2::ZERO;
-        motion.set_target(stage_target(perch.anchor + TAKEOFF_TARGET_OFFSET));
+        transform.translation.x = motion.position.x;
+        transform.translation.y = motion.position.y;
+        // Flight direction comes from motion; the perch orientation is restored on landing.
+        transform.scale.x = 1.0;
+        transform.rotation = bevy::prelude::Quat::IDENTITY;
+        let target = stage_target(plan.takeoff, motion.position);
+        motion.set_target(target);
         *pose = super::VisualPose::default();
     }
 }
 
-pub fn start_flying(mut bats: Query<(&Perch, &mut FlightMotion), With<Bat>>) {
-    for (perch, mut motion) in &mut bats {
-        motion.set_target(stage_target(perch.anchor + FLIGHT_TARGET_OFFSET));
+pub fn start_flying(plan: Res<FlightPlan>, mut bats: Query<&mut FlightMotion, With<Bat>>) {
+    for mut motion in &mut bats {
+        let target = stage_target(plan.flight, motion.position);
+        motion.set_target(target);
     }
 }
 
-pub fn start_returning(mut bats: Query<(&Perch, &mut FlightMotion), With<Bat>>) {
-    for (perch, mut motion) in &mut bats {
-        motion.set_target(stage_target(perch.approach_target()));
+pub fn start_returning(plan: Res<FlightPlan>, mut bats: Query<&mut FlightMotion, With<Bat>>) {
+    for mut motion in &mut bats {
+        let target = stage_target(plan.approach, motion.position);
+        motion.set_target(target);
     }
 }
 
-pub fn start_landing(mut bats: Query<(&Perch, &mut FlightMotion), With<Bat>>) {
-    for (perch, mut motion) in &mut bats {
-        motion.set_target(stage_target(perch.anchor));
+pub fn start_landing(plan: Res<FlightPlan>, mut bats: Query<&mut FlightMotion, With<Bat>>) {
+    for mut motion in &mut bats {
+        let target = stage_target(plan.landing, motion.position);
+        motion.set_target(target);
     }
 }
 
-fn stage_target(position: Vec2) -> FlightTarget {
+fn stage_target(position: Vec2, start: Vec2) -> FlightTarget {
+    let distance = position.distance(start);
+    let slow_radius = if distance.is_finite() && distance < STAGE_SLOW_RADIUS {
+        (distance + STAGE_ARRIVAL_RADIUS).max(STAGE_ARRIVAL_RADIUS + 1.0)
+    } else {
+        STAGE_SLOW_RADIUS
+    };
     FlightTarget {
         position,
         arrival_radius: STAGE_ARRIVAL_RADIUS,
-        slow_radius: STAGE_SLOW_RADIUS,
+        slow_radius,
     }
 }
 
-pub fn finish_landing(mut bats: Query<(&Perch, &mut FlightMotion, &mut Transform), With<Bat>>) {
-    for (perch, mut motion, mut transform) in &mut bats {
-        motion.position = perch.anchor;
-        motion.velocity = Vec2::ZERO;
-        motion.acceleration = Vec2::ZERO;
-        motion.arrived = true;
-        transform.translation.x = perch.anchor.x;
-        transform.translation.y = perch.anchor.y;
+pub fn finish_landing(
+    plan: Res<FlightPlan>,
+    mut bats: Query<(&mut FlightMotion, &mut Transform, &mut super::IdleMotion), With<Bat>>,
+) {
+    for (mut motion, mut transform, mut idle) in &mut bats {
+        settle_at(&mut motion, &mut transform, &mut idle, plan.landing);
     }
+}
+
+fn settle_at(
+    motion: &mut FlightMotion,
+    transform: &mut Transform,
+    idle: &mut super::IdleMotion,
+    anchor: Vec2,
+) {
+    let anchor = finite_vec2(anchor, motion.position);
+    motion.position = anchor;
+    motion.velocity = Vec2::ZERO;
+    motion.acceleration = Vec2::ZERO;
+    motion.arrived = true;
+    transform.translation.x = anchor.x;
+    transform.translation.y = anchor.y;
+    idle.base_translation.x = anchor.x;
+    idle.base_translation.y = anchor.y;
 }
 
 pub fn update_takeoff(
@@ -450,7 +380,9 @@ pub fn advance_flight(
     );
 
     let distance = motion.position.distance(motion.target.position);
-    if distance <= motion.target.arrival_radius
+    // The arrive field approaches zero speed at the edge of its radius. A
+    // subpixel tolerance prevents a low-speed target from stalling just outside it.
+    if distance <= motion.target.arrival_radius + ARRIVAL_SNAP_EPSILON
         && motion.velocity.length() <= motion.max_speed * 0.22
     {
         motion.position = motion.target.position;
@@ -610,29 +542,28 @@ mod tests {
     }
 
     #[test]
+    fn close_stage_target_does_not_stall_outside_the_arrival_radius() {
+        let mut motion = FlightMotion::at(Vec2::new(0.0, 10.0));
+        let target = stage_target(Vec2::ZERO, motion.position);
+        motion.set_target(target);
+        let mut transform = Transform::default();
+        for _ in 0..600 {
+            advance_flight(&mut motion, &mut transform, 1.0 / 60.0);
+            if motion.arrived {
+                break;
+            }
+        }
+        assert!(motion.arrived);
+        assert_eq!(motion.position, Vec2::ZERO);
+    }
+
+    #[test]
     fn snap_to_grid_preserves_pixel_perfect_rendering() {
         assert_eq!(
             snap_to_grid(Vec2::new(13.0, -19.0), 8.0),
             Vec2::new(16.0, -16.0)
         );
         assert_eq!(snap_to_grid(Vec2::new(f32::NAN, 2.0), 8.0), Vec2::ZERO);
-    }
-
-    #[test]
-    fn perch_has_a_distinct_approach_target() {
-        let perch = Perch::hanging(Vec2::ZERO);
-        assert_ne!(perch.approach_target(), perch.anchor);
-    }
-
-    #[test]
-    fn debug_loop_can_be_requested_without_renderer_state() {
-        let debug = FlightDebug {
-            loop_mode: true,
-            delay: 0.0,
-            ..Default::default()
-        };
-        assert!(debug.loop_mode);
-        assert_eq!(debug.cycles, 0);
     }
 
     #[test]
@@ -647,7 +578,7 @@ mod tests {
     #[test]
     fn airborne_pause_keeps_supporting_strokes_and_landing_waits_for_contact() {
         let mut motion = FlightMotion::at(Vec2::new(0.0, -24.0));
-        motion.target = stage_target(Vec2::ZERO);
+        motion.target = stage_target(Vec2::ZERO, motion.position);
         motion.arrived = false;
         let mut intent = FlightVisualIntent::default();
         intent.advance(BatState::Landing, &motion, 0.05);
@@ -714,5 +645,68 @@ mod tests {
         assert!(motion.target.arrival_radius.is_finite());
         assert!(motion.target.slow_radius.is_finite());
         assert!(motion.stage_elapsed.is_finite());
+    }
+
+    #[test]
+    fn repeated_habitat_trips_land_at_each_selected_anchor_without_drift() {
+        let mut habitat = super::super::habitat::Habitat::development();
+        let mut plan = FlightPlan::default();
+        let mut motion = FlightMotion::at(plan.landing);
+        let mut transform = Transform::default();
+        let mut idle = super::super::idle::IdleMotion::new(transform.translation);
+
+        for _ in 0..20 {
+            plan = habitat.prepare_next_trip().unwrap();
+            assert!(plan.is_finite());
+            assert_eq!(motion.position, plan.origin);
+
+            for position in [plan.takeoff, plan.flight, plan.approach, plan.landing] {
+                let target = stage_target(position, motion.position);
+                motion.set_target(target);
+                for _ in 0..600 {
+                    advance_flight(&mut motion, &mut transform, 1.0 / 60.0);
+                    assert!(motion.position.is_finite());
+                    assert!(motion.velocity.is_finite());
+                    assert!(motion.acceleration.is_finite());
+                    if motion.arrived {
+                        break;
+                    }
+                }
+                assert!(
+                    motion.arrived,
+                    "target={position:?} position={:?} velocity={:?} distance={}",
+                    motion.position,
+                    motion.velocity,
+                    motion.position.distance(position)
+                );
+            }
+
+            settle_at(&mut motion, &mut transform, &mut idle, plan.landing);
+            let landed = habitat.complete_trip().unwrap();
+            assert_eq!(motion.position, landed.anchor);
+            assert_eq!(idle.base_translation.truncate(), landed.anchor);
+            assert!(motion.position.is_finite());
+        }
+
+        assert_eq!(habitat.completed_trips, 20);
+        assert_eq!(habitat.current_id(), super::super::habitat::PerchId::A);
+        assert_eq!(motion.position, habitat.current_perch().unwrap().anchor);
+    }
+
+    #[test]
+    fn landing_restores_alive_anchor_at_the_chosen_destination() {
+        let anchor = Vec2::new(0.0, 104.0);
+        let mut motion = FlightMotion::at(Vec2::new(2.0, 108.0));
+        let mut transform = Transform::from_xyz(2.0, 108.0, 0.0);
+        let mut idle =
+            super::super::idle::IdleMotion::new(bevy::prelude::Vec3::new(0.0, 152.0, 0.0));
+
+        settle_at(&mut motion, &mut transform, &mut idle, anchor);
+
+        assert_eq!(motion.position, anchor);
+        assert_eq!(transform.translation.truncate(), anchor);
+        assert_eq!(idle.base_translation.truncate(), anchor);
+        assert_eq!(motion.velocity, Vec2::ZERO);
+        assert!(motion.arrived);
     }
 }

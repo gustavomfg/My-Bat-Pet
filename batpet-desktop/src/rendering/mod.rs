@@ -5,13 +5,10 @@ use bevy::{
     prelude::{Camera2d, Commands, Res, Sprite, Transform, Vec2, Visibility},
 };
 
-use crate::{
-    pet::{
-        AnimationIntent, AttentionMotion, Bat, BlinkState, BreathingMotion, ClickReaction,
-        EarTwitchMotion, EyePupil, FlightMotion, FlightVisualIntent, IdleAdjustmentMotion,
-        IdleGazeMotion, IdleMotion, Perch, VisualPose,
-    },
-    window::WINDOW_HEIGHT,
+use crate::pet::{
+    AnimationIntent, AttentionMotion, Bat, BlinkState, BreathingMotion, ClickReaction,
+    EarTwitchMotion, EyePupil, FlightMotion, FlightVisualIntent, Habitat, IdleAdjustmentMotion,
+    IdleGazeMotion, IdleMotion, VisualPose,
 };
 
 pub const BAT_SPRITE_PATH: &str = "bat/idle/bat_idle.png";
@@ -32,14 +29,17 @@ pub const PUPIL_DISPLAY_SIZE: f32 = PUPIL_PIXEL_SIZE * DISPLAY_SCALE;
 pub const LEFT_PUPIL_TOP_LEFT: Vec2 = Vec2::new(10.0, 20.0);
 pub const RIGHT_PUPIL_TOP_LEFT: Vec2 = Vec2::new(19.0, 20.0);
 
-pub fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+pub fn setup(mut commands: Commands, asset_server: Res<AssetServer>, habitat: Res<Habitat>) {
     commands.spawn(Camera2d);
-    let base = Transform::from_xyz(0.0, WINDOW_HEIGHT as f32 * 0.5 - TOP_MARGIN, 0.0);
+    let perch = habitat
+        .current_perch()
+        .expect("habitat must have a current perch");
+    let mut base = Transform::from_xyz(perch.anchor.x, perch.anchor.y, 0.0);
+    base.scale.x = perch.facing.root_scale_x();
     let bat = commands
         .spawn((
             Bat,
             ClickReaction::default(),
-            Perch::hanging(base.translation.truncate()),
             FlightMotion::at(base.translation.truncate()),
             IdleMotion::new(base.translation),
             BreathingMotion::default(),

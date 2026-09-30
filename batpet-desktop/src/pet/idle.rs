@@ -16,6 +16,7 @@ use crate::{
 use super::acting::{
     AttentionMotion, BACKGROUND_ACTION_MAX_ATTENTION, IdleGazeMotion, IdleGazePhase,
 };
+use super::habitat::Habitat;
 
 pub const BREATHING_MIN_DURATION: f32 = 4.2;
 pub const BREATHING_MAX_DURATION: f32 = 6.1;
@@ -659,10 +660,16 @@ pub fn update_blink(
     }
 }
 
-pub fn apply_idle_motion(mut bats: Query<(&IdleMotion, &mut Transform), With<Bat>>) {
+pub fn apply_idle_motion(
+    habitat: Res<Habitat>,
+    mut bats: Query<(&IdleMotion, &mut Transform), With<Bat>>,
+) {
+    let facing_scale = habitat
+        .current_perch()
+        .map_or(1.0, |perch| perch.facing.root_scale_x());
     for (idle, mut transform) in &mut bats {
         transform.translation = idle.base_translation;
-        transform.scale = Vec3::ONE;
+        transform.scale = Vec3::new(facing_scale, 1.0, 1.0);
         transform.rotation = bevy::prelude::Quat::IDENTITY;
     }
 }

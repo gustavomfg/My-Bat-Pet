@@ -1,6 +1,6 @@
 //! Opt-in, reproducible visual rehearsal through the actual Bevy renderer.
 //! `--review-dir /tmp/batpet-review/final` writes 12 seconds at 12 fps.
-use crate::pet::{BatState, CursorState};
+use crate::pet::{BatState, CursorState, Habitat};
 use bevy::{
     prelude::*,
     render::view::screenshot::{Screenshot, save_to_disk},
@@ -14,6 +14,7 @@ pub struct Review {
     clicked: bool,
     presence: bool,
     flight: bool,
+    habitat: bool,
     os_cursor: bool,
     trace: Option<std::fs::File>,
     external_cursor: bool,
@@ -40,6 +41,7 @@ impl Review {
             external_cursor: std::env::args().any(|arg| arg == "--review-external-cursor"),
             presence: std::env::args().any(|arg| arg == "--review-presence"),
             flight: std::env::args().any(|arg| arg == "--review-flight"),
+            habitat: std::env::args().any(|arg| arg == "--review-habitat"),
             os_cursor: std::env::args().any(|arg| arg == "--review-os-cursor"),
             ..default()
         }
@@ -57,7 +59,7 @@ pub fn drive(
         return;
     }
     let t = time.elapsed_secs();
-    if review.external_cursor || review.flight {
+    if review.external_cursor || review.flight || review.habitat {
         return;
     }
     if review.presence {
@@ -90,6 +92,7 @@ pub fn capture(
     mut exit: MessageWriter<AppExit>,
     state: Res<State<BatState>>,
     cursor: Res<CursorState>,
+    habitat: Res<Habitat>,
 ) {
     let Some(directory) = review.directory.clone() else {
         return;
@@ -97,6 +100,8 @@ pub fn capture(
     let t = time.elapsed_secs();
     let end = if review.presence {
         26.5
+    } else if review.habitat {
+        30.0
     } else if review.flight {
         11.5
     } else {
@@ -108,10 +113,24 @@ pub fn capture(
             BatState::HangingIdle,
             "review must return to rest"
         );
+        if review.habitat {
+            assert!(
+                habitat.completed_trips >= 3,
+                "habitat review must complete at least three trips"
+            );
+        }
         exit.write(AppExit::Success);
         return;
     }
-    let capture_start = if review.flight { 0.75 } else { 0.5 };
+    if review.habitat && habitat.completed_trips >= 3 && *state.get() == BatState::HangingIdle {
+        exit.write(AppExit::Success);
+        return;
+    }
+    let capture_start = if review.flight || review.habitat {
+        0.75
+    } else {
+        0.5
+    };
     if t < capture_start || t > end {
         return;
     }
